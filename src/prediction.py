@@ -25,7 +25,7 @@ def load_assets():
         with open(f"{BASE_PATH}model_metadata.json", 'r') as f:
             meta = json.load(f)
         
-        model_path = f"{BASE_PATH}feature_extractor.h5"
+        model_path = f"{BASE_PATH}feature_extractor.keras"
         
         # Registrasi 'NotEqual' sebagai fungsi yang fleksibel
         # Keras 3 sering melabeli operasi '!=' sebagai 'NotEqual'

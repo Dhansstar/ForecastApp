@@ -7,20 +7,15 @@ import joblib
 import json
 
 # --- 1. DIRECT PATH ---
-# Langsung tembak ke folder src sesuai struktur lo
 BASE_PATH = "src/" 
 
 @st.cache_resource
 def load_assets():
-    # Langsung baca metadata di dalam src
     with open(f"{BASE_PATH}model_metadata.json", 'r') as f:
         meta = json.load(f)
-    
-    # Load Model (pake path langsung)
     fe_model = load_model(f"{BASE_PATH}feature_extractor.keras")
     vol_model = joblib.load(f"{BASE_PATH}xgb_vol_model.joblib")
     mape_model = joblib.load(f"{BASE_PATH}xgb_mape_model.joblib")
-    
     return meta, fe_model, vol_model, mape_model
 
 @st.cache_data
@@ -33,11 +28,9 @@ def load_and_sync_data():
         'Storage': 'forecast_storage_data.csv',
         'Other': 'forecast_other_data.csv'
     }
-    
     all_dfs = []
     for kat, fname in files.items():
-        path = f"{BASE_PATH}{fname}"
-        df = pd.read_csv(path)
+        df = pd.read_csv(f"{BASE_PATH}{fname}")
         df['Kategori'] = kat
         if 'Jumlah Terjual Bersih' in df.columns:
             df = df.rename(columns={'Jumlah Terjual Bersih': 'Net_Sales'})
@@ -47,15 +40,37 @@ def load_and_sync_data():
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
     return full_df
 
-# --- 2. ENGINE RECURSIVE ---
+# --- 2. ENGINE RECURSIVE (FIX KEYERROR) ---
 def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     recipe = meta['final_recipes'][kat]
     time_steps = meta['time_steps']
     
-    hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').tail(time_steps)
-    curr_win = hist[meta['features']].values.tolist()
-    kat_onehot = hist[meta['kat_cols']].iloc[0].tolist()
-    last_date = hist['Waktu Pesanan Dibuat'].max()
+    # Ambil history mentah
+    hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').copy()
+    
+    # --- PRE-PROCESSING KOLOM YANG HILANG ---
+    # Model lo butuh fitur ini, tapi di CSV mentah gak ada. Kita bikin manual.
+    hist['day_sin'] = np.sin(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
+    hist['day_cos'] = np.cos(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
+    hist['lag_1'] = np.log1p(hist['Net_Sales'].shift(1))
+    hist['lag_7'] = hist['Net_Sales'].shift(7)
+    hist['lag_28'] = hist['Net_Sales'].shift(28)
+    hist['rolling_mean_7'] = hist['Net_Sales'].rolling(window=7).mean()
+    
+    # Isi NaN hasil shift/rolling biar gak error
+    hist = hist.fillna(0)
+    
+    # Sekarang baru ambil tail sesuai time_steps
+    hist_input = hist.tail(time_steps)
+    
+    # Pastikan kolom One-Hot Kategori juga ada
+    for col in meta['kat_cols']:
+        if col not in hist_input.columns:
+            hist_input[col] = 1 if f"Kategori_{kat}" == col else 0
+
+    curr_win = hist_input[meta['features']].values.tolist()
+    kat_onehot = [hist_input[col].iloc[0] for col in meta['kat_cols']]
+    last_date = hist_input['Waktu Pesanan Dibuat'].max()
     
     preds = []
     for i in range(1, 31):
@@ -66,7 +81,6 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
         p_m = mape_model.predict(lat)[0]
         val = (recipe['w_vol'] * p_v) + (recipe['w_mape'] * p_m)
         
-        # Post-process (Biar Kitchen = 1107)
         val = max(0, val) if val >= recipe['thresh'] else 0
         if not recipe['smooth']:
             val = np.ceil(val) if kat in ['Kitchen', 'Home'] else np.round(val)
@@ -75,11 +89,12 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
         # Feedback loop
         nxt_d = last_date + pd.Timedelta(days=i)
         new_row = [
-            np.sin(2*np.pi*nxt_d.day/31), np.cos(2*np.pi*nxt_d.day/31),
-            np.log1p(val), 
-            curr_win[-7][2] if len(curr_win)>=7 else 0,
-            curr_win[-28][2] if len(curr_win)>=28 else 0,
-            np.mean([r[2] for r in curr_win[-7:]])
+            np.sin(2*np.pi*nxt_d.day/31), 
+            np.cos(2*np.pi*nxt_d.day/31),
+            np.log1p(val), # lag_1
+            curr_win[-7][2] if len(curr_win)>=7 else 0, # lag_7
+            curr_win[-28][2] if len(curr_win)>=28 else 0, # lag_28
+            np.mean([r[2] for r in curr_win[-7:]]) # rolling_mean
         ]
         new_row.extend(kat_onehot)
         curr_win.append(new_row)
@@ -91,7 +106,7 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     total_recom = int(np.ceil(np.sum(preds) * recipe['mult']))
     return preds, total_recom, last_date
 
-# --- 3. RUN ---
+# --- 3. UI ---
 def run_prediction():
     meta, fe_model, vol_model, mape_model = load_assets()
     full_df = load_and_sync_data()

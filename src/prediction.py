@@ -11,16 +11,12 @@ BASE_PATH = "src/"
 
 @st.cache_resource
 def load_assets():
-    try:
-        with open(f"{BASE_PATH}model_metadata.json", 'r') as f:
-            meta = json.load(f)
-        fe_model = load_model(f"{BASE_PATH}feature_extractor.keras")
-        vol_model = joblib.load(f"{BASE_PATH}xgb_vol_model.joblib")
-        mape_model = joblib.load(f"{BASE_PATH}xgb_mape_model.joblib")
-        return meta, fe_model, vol_model, mape_model
-    except Exception as e:
-        st.error(f"Gagal Load Asset: {e}")
-        st.stop()
+    with open(f"{BASE_PATH}model_metadata.json", 'r') as f:
+        meta = json.load(f)
+    fe_model = load_model(f"{BASE_PATH}feature_extractor.keras")
+    vol_model = joblib.load(f"{BASE_PATH}xgb_vol_model.joblib")
+    mape_model = joblib.load(f"{BASE_PATH}xgb_mape_model.joblib")
+    return meta, fe_model, vol_model, mape_model
 
 @st.cache_data
 def load_and_sync_data():
@@ -37,20 +33,19 @@ def load_and_sync_data():
             if 'Jumlah Terjual Bersih' in df.columns:
                 df = df.rename(columns={'Jumlah Terjual Bersih': 'Net_Sales'})
             all_dfs.append(df)
-        except:
-            continue
-    return pd.concat(all_dfs, ignore_index=True)
+        except: continue
+    full_df = pd.concat(all_dfs, ignore_index=True)
+    full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
+    return full_df
 
-# --- 2. ENGINE RECURSIVE (STRICT MODE) ---
+# --- 2. ENGINE RECURSIVE (STRICT ALIGNMENT) ---
 def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     recipe = meta['final_recipes'][kat]
     time_steps = meta['time_steps']
     
-    # Ambil data kategori & buat fitur dasar
     hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').copy()
-    hist['Waktu Pesanan Dibuat'] = pd.to_datetime(hist['Waktu Pesanan Dibuat'])
     
-    # Buat Fitur (Sesuai Logika Training)
+    # Feature Engineering (Identik Training)
     hist['day_sin'] = np.sin(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['day_cos'] = np.cos(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['lag_1'] = np.log1p(hist['Net_Sales'].shift(1))
@@ -58,13 +53,9 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     hist['lag_28'] = hist['Net_Sales'].shift(28)
     hist['rolling_mean_7'] = hist['Net_Sales'].rolling(window=7).mean()
     
-    # Gabungin daftar kolom yang diminta Model
     all_req_cols = meta['features'] + meta['kat_cols']
-    
-    # --- PROSES SINKRONISASI KOLOM (PENTING!) ---
     for col in all_req_cols:
         if col not in hist.columns:
-            # Jika kolom kategori, set 1 jika nama kategori ada di dalam nama kolom
             if "Kategori" in col:
                 hist[col] = 1 if kat.lower() in col.lower() else 0
             else:
@@ -73,23 +64,14 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     hist = hist.fillna(0)
     hist_input = hist.tail(time_steps)
     
-    # Ambil data dengan URUTAN SAKLEK sesuai meta
-    try:
-        curr_win = hist_input[all_req_cols].values.tolist()
-    except KeyError as e:
-        st.error(f"Kolom ini ilang dari DataFrame: {e}")
-        st.write("Kolom yang ada:", list(hist_input.columns))
-        st.stop()
-
-    # Siapkan One-Hot untuk feedback loop
+    # Data Windowing
+    curr_win = hist_input[all_req_cols].values.tolist()
     kat_onehot_vals = [1 if kat.lower() in c.lower() else 0 for c in meta['kat_cols']]
     last_date = hist_input['Waktu Pesanan Dibuat'].max()
     
     preds = []
     for i in range(1, 31):
         X_in = np.array([curr_win[-time_steps:]])
-        
-        # Predict
         lat = fe_model.predict(X_in, verbose=0)
         p_v = vol_model.predict(lat)[0]
         p_m = mape_model.predict(lat)[0]
@@ -100,15 +82,12 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
             val = np.ceil(val) if kat in ['Kitchen', 'Home'] else np.round(val)
         preds.append(val)
         
-        # Feedback loop t+1
+        # Recursive Step
         nxt_d = last_date + pd.Timedelta(days=i)
-        new_row = [
-            np.sin(2*np.pi*nxt_d.day/31), np.cos(2*np.pi*nxt_d.day/31),
-            np.log1p(val),
-            curr_win[-7][2] if len(curr_win)>=7 else 0,
-            curr_win[-28][2] if len(curr_win)>=28 else 0,
-            np.mean([r[2] for r in curr_win[-7:]])
-        ]
+        new_row = [np.sin(2*np.pi*nxt_d.day/31), np.cos(2*np.pi*nxt_d.day/31), np.log1p(val),
+                   curr_win[-7][2] if len(curr_win)>=7 else 0,
+                   curr_win[-28][2] if len(curr_win)>=28 else 0,
+                   np.mean([r[2] for r in curr_win[-7:]])]
         new_row.extend(kat_onehot_vals)
         curr_win.append(new_row)
         
@@ -116,25 +95,59 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
         preds = pd.Series(preds).rolling(window=5, min_periods=1, center=True).mean().values
         preds = np.floor(preds + 0.3)
         
-    return preds, int(np.ceil(np.sum(preds) * recipe['mult'])), last_date
+    return preds, int(np.ceil(np.sum(preds) * recipe['mult'])), last_date, hist.tail(30)
 
-# --- 3. UI ---
+# --- 3. UI & VISUALIZATION (IDENTIK GAMBAR) ---
 def run_prediction():
     meta, fe_model, vol_model, mape_model = load_assets()
     full_df = load_and_sync_data()
 
-    st.title("🚀 DemandSense: Production Forecasting")
-    selected_kat = st.sidebar.selectbox("Kategori", list(meta['final_recipes'].keys()))
+    st.title(f"DemandSense: {st.sidebar.selectbox('Pilih Kategori', list(meta['final_recipes'].keys()), key='kat')}")
+    selected_kat = st.session_state.kat
 
-    daily_preds, total_stok, last_dt = run_recursive_forecast(
+    daily_preds, total_stok, last_dt, hist_30 = run_recursive_forecast(
         selected_kat, meta, fe_model, vol_model, mape_model, full_df
     )
     
-    st.metric(f"Total Stok {selected_kat}", f"{total_stok} Unit")
+    # Grafik Plotly Identik Gambar
+    forecast_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
     
     fig = go.Figure()
-    f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
-    fig.add_trace(go.Scatter(x=f_dates, y=daily_preds, name="Forecast", line=dict(color='orange', width=3)))
+
+    # 1. Historis (Garis Biru Solid)
+    fig.add_trace(go.Scatter(
+        x=hist_30['Waktu Pesanan Dibuat'], y=hist_30['Net_Sales'],
+        mode='lines+markers', name='Historis (30 Hari)',
+        line=dict(color='#1f77b4', width=3), marker=dict(size=6)
+    ))
+
+    # 2. Forecast (Garis Oranye Putus-putus)
+    fig.add_trace(go.Scatter(
+        x=forecast_dates, y=daily_preds,
+        mode='lines+markers', name='Forecast (30 Hari)',
+        line=dict(color='#ff7f0e', width=3, dash='dash'), marker=dict(symbol='square', size=6)
+    ))
+
+    # 3. Prediction Zone (Arsiran Oranye Muda)
+    fig.add_vrect(
+        x0=forecast_dates[0], x1=forecast_dates[-1],
+        fillcolor="orange", opacity=0.1, layer="below", line_width=0,
+        annotation_text="PREDICTION ZONE", annotation_position="top left"
+    )
+
+    # Annotation Box (Total Estimasi Stok)
+    fig.add_annotation(
+        x=hist_30['Waktu Pesanan Dibuat'].iloc[5], y=max(hist_30['Net_Sales']) * 1.1,
+        text=f"Total Estimasi Stok: {total_stok} Unit",
+        showarrow=False, font=dict(color="white", size=16),
+        bgcolor="#ff7f0e", bordercolor="#ff7f0e", borderpad=10
+    )
+
+    fig.update_layout(
+        xaxis_title="Waktu", yaxis_title="Jumlah Unit Terjual",
+        template="plotly_white", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":

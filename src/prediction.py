@@ -40,35 +40,39 @@ def load_and_sync_data():
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
     return full_df
 
-# --- 2. ENGINE RECURSIVE (FIX KEYERROR) ---
+# --- 2. ENGINE RECURSIVE (FIXED FEATURE ENGINEERING) ---
 def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     recipe = meta['final_recipes'][kat]
     time_steps = meta['time_steps']
     
-    # Ambil history mentah
+    # 1. Filter kategori dan urutkan tanggal
     hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').copy()
     
-    # --- PRE-PROCESSING KOLOM YANG HILANG ---
-    # Model lo butuh fitur ini, tapi di CSV mentah gak ada. Kita bikin manual.
+    # 2. GENERATE FEATURES (Biar gak KeyError)
+    # Kita harus buat fitur-fitur ini karena model lo membutuhkannya
     hist['day_sin'] = np.sin(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['day_cos'] = np.cos(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
+    
+    # Fitur Lag & Rolling (Paket wajib biar identik sama notebook)
     hist['lag_1'] = np.log1p(hist['Net_Sales'].shift(1))
     hist['lag_7'] = hist['Net_Sales'].shift(7)
     hist['lag_28'] = hist['Net_Sales'].shift(28)
     hist['rolling_mean_7'] = hist['Net_Sales'].rolling(window=7).mean()
     
-    # Isi NaN hasil shift/rolling biar gak error
+    # One-Hot Encoding Kategori (Kategori_Kitchen, Kategori_Home, dsb)
+    for col in meta['kat_cols']:
+        hist[col] = 1 if f"Kategori_{kat}" == col else 0
+
+    # Fill NaN hasil shift/rolling
     hist = hist.fillna(0)
     
-    # Sekarang baru ambil tail sesuai time_steps
+    # 3. Ambil tail sesuai window model
     hist_input = hist.tail(time_steps)
     
-    # Pastikan kolom One-Hot Kategori juga ada
-    for col in meta['kat_cols']:
-        if col not in hist_input.columns:
-            hist_input[col] = 1 if f"Kategori_{kat}" == col else 0
-
-    curr_win = hist_input[meta['features']].values.tolist()
+    # Cek apakah semua fitur yang diminta meta['features'] sudah ada di dataframe
+    available_features = [f for f in meta['features'] if f in hist_input.columns]
+    
+    curr_win = hist_input[available_features].values.tolist()
     kat_onehot = [hist_input[col].iloc[0] for col in meta['kat_cols']]
     last_date = hist_input['Waktu Pesanan Dibuat'].max()
     
@@ -81,17 +85,18 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
         p_m = mape_model.predict(lat)[0]
         val = (recipe['w_vol'] * p_v) + (recipe['w_mape'] * p_m)
         
+        # Post-process pembulatan
         val = max(0, val) if val >= recipe['thresh'] else 0
         if not recipe['smooth']:
             val = np.ceil(val) if kat in ['Kitchen', 'Home'] else np.round(val)
         preds.append(val)
         
-        # Feedback loop
+        # Recursive feedback t+1
         nxt_d = last_date + pd.Timedelta(days=i)
         new_row = [
             np.sin(2*np.pi*nxt_d.day/31), 
             np.cos(2*np.pi*nxt_d.day/31),
-            np.log1p(val), # lag_1
+            np.log1p(val), # lag_1 baru
             curr_win[-7][2] if len(curr_win)>=7 else 0, # lag_7
             curr_win[-28][2] if len(curr_win)>=28 else 0, # lag_28
             np.mean([r[2] for r in curr_win[-7:]]) # rolling_mean
@@ -112,17 +117,19 @@ def run_prediction():
     full_df = load_and_sync_data()
 
     st.title("🚀 DemandSense: Production Forecasting")
-    selected_kat = st.sidebar.selectbox("Kategori", list(meta['final_recipes'].keys()))
+    selected_kat = st.sidebar.selectbox("Pilih Kategori", list(meta['final_recipes'].keys()))
 
     daily_preds, total_stok, last_dt = run_recursive_forecast(
         selected_kat, meta, fe_model, vol_model, mape_model, full_df
     )
     
-    st.metric(f"Total Stok {selected_kat}", f"{total_stok} Unit")
+    c1, c2 = st.columns(2)
+    c1.metric(f"Total Stok {selected_kat}", f"{total_stok} Unit")
+    c2.metric("Multiplier", f"x{meta['final_recipes'][selected_kat]['mult']}")
     
     forecast_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=forecast_dates, y=daily_preds, name="Forecast", line=dict(color='orange')))
+    fig.add_trace(go.Scatter(x=forecast_dates, y=daily_preds, name="Prediksi", line=dict(color='orange', width=3)))
     st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":

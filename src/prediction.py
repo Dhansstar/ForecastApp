@@ -9,10 +9,12 @@ import joblib
 import json
 import os
 
-# --- 1. REGISTRASI CUSTOM LAYER (UNTUK FIX NOT_EQUAL ERROR) ---
-# Kita daftarin operasi NotEqual biar Keras 3 gak rewel pas baca file .h5 lama
-def not_equal_fn(x, y):
-    return tf.math.not_equal(x, y)
+# --- 1. FIX NOT_EQUAL: MENGGUNAKAN LAMBDA UNTUK MENERIMA ARGUMEN STANDAR ---
+def not_equal_layer(x, **kwargs):
+    # Kita ambil cuma inputnya, abaikan 'name' atau argumen lain dari Keras
+    if isinstance(x, list):
+        return tf.math.not_equal(x[0], x[1])
+    return tf.math.not_equal(x, 0) # Atau sesuaikan dengan logika model lo
 
 # --- 2. ASSETS LOADING ---
 BASE_PATH = "src/" 
@@ -25,11 +27,15 @@ def load_assets():
         
         model_path = f"{BASE_PATH}feature_extractor.h5"
         
-        # PAKAI CUSTOM OBJECT SCOPE
-        # Kita kasih tau Keras kalo nemu 'NotEqual', pake fungsi yang kita bikin tadi
-        custom_objects = {'NotEqual': not_equal_fn}
+        # Registrasi 'NotEqual' sebagai fungsi yang fleksibel
+        # Keras 3 sering melabeli operasi '!=' sebagai 'NotEqual'
+        custom_objects = {
+            'NotEqual': not_equal_layer,
+            'tf': tf # Terkadang dibutuhkan jika ada ekspresi tf langsung
+        }
         
         with custom_object_scope(custom_objects):
+            # compile=False tetap wajib biar gak error di Optimizer
             fe_model = load_model(model_path, compile=False, safe_mode=False)
             
         vol_model = joblib.load(f"{BASE_PATH}xgb_vol_model.joblib")
@@ -37,18 +43,27 @@ def load_assets():
         
         return meta, fe_model, vol_model, mape_model
     except Exception as e:
-        st.error(f"❌ Masih Gagal Deserialisasi: {e}")
-        st.info("Kalo masih error, fiks lo harus save ulang modelnya ke format '.keras' di lokal.")
+        st.error(f"❌ Keras 3 beneran nolak file .h5 ini: {e}")
+        st.markdown("""
+        ### 🛠️ Solusi Terakhir (Wajib):
+        Keras 3 di Streamlit Cloud (Python 3.12) punya standar keamanan & serialisasi baru yang sangat ketat terhadap file `.h5` lama.
+        
+        **Lakukan ini di Laptop/Notebook lokal lo:**
+        1. `model = load_model('feature_extractor.h5', compile=False)`
+        2. `model.save('src/feature_extractor.keras')`
+        3. Push file `.keras` baru itu ke GitHub.
+        4. Ganti line loading di code ini jadi: `load_model('src/feature_extractor.keras')`
+        """)
         st.stop()
 
-# --- 3. FORECAST ENGINE (UNCHANGED) ---
+# --- 3. FORECAST ENGINE (SAMA SEPERTI SEBELUMNYA) ---
 def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     recipe = meta['final_recipes'][kat]
     time_steps = meta['time_steps']
     
     hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').copy()
     
-    # Feature Engineering
+    # Feature Engineering Dasar
     hist['day_sin'] = np.sin(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['day_cos'] = np.cos(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['lag_1'] = np.log1p(hist['Net_Sales'].shift(1))
@@ -62,6 +77,7 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
             hist[col] = (1 if kat.lower() in col.lower() else 0) if "Kategori" in col else 0
     hist = hist.fillna(0)
 
+    # Padding
     if len(hist) < time_steps:
         pad = pd.DataFrame(0, index=range(time_steps - len(hist)), columns=hist.columns)
         hist = pd.concat([pad, hist], ignore_index=True)
@@ -101,7 +117,7 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
 def run_prediction():
     meta, fe_model, vol_model, mape_model = load_assets()
     
-    # Load Data CSV (Sama kayak sebelumnya)
+    # Load Data CSV
     files = {'Kitchen': 'forecast_kitchen_data.csv', 'Home': 'forecast_home_data.csv',
              'Tools': 'forecast_tools_data.csv', 'Bathroom': 'forecast_bathroom_data.csv',
              'Storage': 'forecast_storage_data.csv', 'Other': 'forecast_other_data.csv'}
@@ -119,18 +135,18 @@ def run_prediction():
     st.markdown("""
         <div style="background-color:#1e293b; padding:15px; border-radius:10px; border-left: 5px solid #3b82f6; margin-bottom:20px;">
             <h3 style="color:#3b82f6; margin:0;">🔮 30-Day Demand Forecasting</h3>
-            <p style="color:white; margin:0;">Pilih kategori produk di bawah ini:</p>
+            <p style="color:white; margin:0;">Estimasi kebutuhan stok berdasarkan tren historis.</p>
         </div>
     """, unsafe_allow_html=True)
 
-    # DROPDOWN DI HALAMAN UTAMA
-    selected_kat = st.selectbox("Kategori Produk", list(meta['final_recipes'].keys()))
+    # PILIH KATEGORI DI MAIN PAGE
+    selected_kat = st.selectbox("Pilih Kategori Produk:", list(meta['final_recipes'].keys()))
 
     daily_preds, total_stok, last_dt, hist_30 = run_recursive_forecast(
         selected_kat, meta, fe_model, vol_model, mape_model, full_df
     )
     
-    # Visualisasi Sesuai Screenshot
+    # Visualisasi
     st.markdown(f"## Prediction Zone: <span style='color:#f97316'>{selected_kat}</span>", unsafe_allow_html=True)
     f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
     

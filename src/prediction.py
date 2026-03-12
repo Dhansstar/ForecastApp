@@ -2,12 +2,19 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from tensorflow.keras.models import load_model, model_from_json
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import custom_object_scope
 import joblib
 import json
 import os
 
-# --- 1. ASSETS LOADING (HARD BYPASS) ---
+# --- 1. REGISTRASI CUSTOM LAYER (UNTUK FIX NOT_EQUAL ERROR) ---
+# Kita daftarin operasi NotEqual biar Keras 3 gak rewel pas baca file .h5 lama
+def not_equal_fn(x, y):
+    return tf.math.not_equal(x, y)
+
+# --- 2. ASSETS LOADING ---
 BASE_PATH = "src/" 
 
 @st.cache_resource
@@ -18,25 +25,23 @@ def load_assets():
         
         model_path = f"{BASE_PATH}feature_extractor.h5"
         
-        # JANGAN PAKE load_model BIASA KALO .h5 REWEL
-        # Kita coba load tanpa compile dan pake safe_mode disabled
-        try:
+        # PAKAI CUSTOM OBJECT SCOPE
+        # Kita kasih tau Keras kalo nemu 'NotEqual', pake fungsi yang kita bikin tadi
+        custom_objects = {'NotEqual': not_equal_fn}
+        
+        with custom_object_scope(custom_objects):
             fe_model = load_model(model_path, compile=False, safe_mode=False)
-        except Exception:
-            # Jalur terakhir: Kalo masih error, berarti Keras 3 beneran benci file itu
-            # Gue paksa load, tapi lo harus mastiin file .h5 lo beneran ada
-            fe_model = load_model(model_path, compile=False)
             
         vol_model = joblib.load(f"{BASE_PATH}xgb_vol_model.joblib")
         mape_model = joblib.load(f"{BASE_PATH}xgb_mape_model.joblib")
         
         return meta, fe_model, vol_model, mape_model
     except Exception as e:
-        st.error(f"❌ Keras 3 Gagal Deserialisasi: {e}")
-        st.warning("Solusi: Coba simpan ulang model lo di lokal pake format '.keras' (model.save('model.keras')) terus upload ulang.")
+        st.error(f"❌ Masih Gagal Deserialisasi: {e}")
+        st.info("Kalo masih error, fiks lo harus save ulang modelnya ke format '.keras' di lokal.")
         st.stop()
 
-# --- 2. FORECAST ENGINE (UNCHANGED BUT STABLE) ---
+# --- 3. FORECAST ENGINE (UNCHANGED) ---
 def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     recipe = meta['final_recipes'][kat]
     time_steps = meta['time_steps']
@@ -57,7 +62,6 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
             hist[col] = (1 if kat.lower() in col.lower() else 0) if "Kategori" in col else 0
     hist = hist.fillna(0)
 
-    # Padding
     if len(hist) < time_steps:
         pad = pd.DataFrame(0, index=range(time_steps - len(hist)), columns=hist.columns)
         hist = pd.concat([pad, hist], ignore_index=True)
@@ -85,7 +89,7 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
         preds.append(val)
         
         nxt_d = last_date + pd.Timedelta(days=i)
-        new_row = [np.sin(2*np.pi*nxt_d.day/31), np.cos(2*np.pi*nxt_d.day/31), np.log1p(val),
+        new_row = [np.sin(2*nxt_d.day*np.pi/31), np.cos(2*nxt_d.day*np.pi/31), np.log1p(val),
                    curr_win[-7][2] if len(curr_win)>=7 else 0,
                    curr_win[-28][2] if len(curr_win)>=28 else 0,
                    np.mean([r[2] for r in curr_win[-7:]])]
@@ -93,11 +97,11 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
         
     return preds, int(np.ceil(np.sum(preds) * recipe['mult'])), last_date, hist.tail(30)
 
-# --- 3. UI (MENU PREDICTION SESUAI SS) ---
+# --- 4. UI (MENU PREDICTION) ---
 def run_prediction():
     meta, fe_model, vol_model, mape_model = load_assets()
     
-    # Load Data CSV
+    # Load Data CSV (Sama kayak sebelumnya)
     files = {'Kitchen': 'forecast_kitchen_data.csv', 'Home': 'forecast_home_data.csv',
              'Tools': 'forecast_tools_data.csv', 'Bathroom': 'forecast_bathroom_data.csv',
              'Storage': 'forecast_storage_data.csv', 'Other': 'forecast_other_data.csv'}
@@ -111,15 +115,22 @@ def run_prediction():
     full_df = pd.concat(all_dfs, ignore_index=True)
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
 
-    # --- DROPDOWN DI MAIN PAGE ---
-    st.write("### Pilih Kategori Produk")
-    selected_kat = st.selectbox("", list(meta['final_recipes'].keys()), label_visibility="collapsed")
+    # Header Box
+    st.markdown("""
+        <div style="background-color:#1e293b; padding:15px; border-radius:10px; border-left: 5px solid #3b82f6; margin-bottom:20px;">
+            <h3 style="color:#3b82f6; margin:0;">🔮 30-Day Demand Forecasting</h3>
+            <p style="color:white; margin:0;">Pilih kategori produk di bawah ini:</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # DROPDOWN DI HALAMAN UTAMA
+    selected_kat = st.selectbox("Kategori Produk", list(meta['final_recipes'].keys()))
 
     daily_preds, total_stok, last_dt, hist_30 = run_recursive_forecast(
         selected_kat, meta, fe_model, vol_model, mape_model, full_df
     )
     
-    # Visualisasi
+    # Visualisasi Sesuai Screenshot
     st.markdown(f"## Prediction Zone: <span style='color:#f97316'>{selected_kat}</span>", unsafe_allow_html=True)
     f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
     
@@ -127,8 +138,12 @@ def run_prediction():
     fig.add_trace(go.Scatter(x=hist_30['Waktu Pesanan Dibuat'], y=hist_30['Net_Sales'], name='Historis', line=dict(color='#3b82f6', width=3)))
     fig.add_trace(go.Scatter(x=f_dates, y=daily_preds, name='Forecast', line=dict(color='#f97316', width=3, dash='dash')))
     fig.add_vrect(x0=f_dates[0], x1=f_dates[-1], fillcolor="#f97316", opacity=0.1, layer="below", line_width=0)
+    
     fig.add_annotation(x=0.02, y=0.95, xref="paper", yref="paper", text=f"📦 Total Estimasi Stok: <b>{total_stok} Unit</b>",
                        showarrow=False, font=dict(color="white"), bgcolor="#f97316", borderpad=10)
 
     fig.update_layout(template="plotly_white", xaxis_title="Tanggal", yaxis_title="Unit Terjual", height=500)
     st.plotly_chart(fig, use_container_width=True)
+
+if __name__ == "__main__":
+    run_prediction()

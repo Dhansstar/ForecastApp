@@ -13,7 +13,7 @@ BASE_PATH = "src/"
 def load_assets():
     with open(f"{BASE_PATH}model_metadata.json", 'r') as f:
         meta = json.load(f)
-    fe_model = load_model(f"{BASE_PATH}feature_extractor.H5")
+    fe_model = load_model(f"{BASE_PATH}feature_extractor.h5")
     vol_model = joblib.load(f"{BASE_PATH}xgb_vol_model.joblib")
     mape_model = joblib.load(f"{BASE_PATH}xgb_mape_model.joblib")
     return meta, fe_model, vol_model, mape_model

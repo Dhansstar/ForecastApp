@@ -47,7 +47,7 @@ def load_data():
 
 def run():
     # --- HEADER ---
-    st.markdown('<div id="text-split"><h2 class="animate-header">📊 MARKET DEMAND AND SALES ANALYSIS</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div id="text-split"><h2 class="animate-header">MARKET DEMAND AND SALES ANALYSIS</h2></div>', unsafe_allow_html=True)
     
     st.markdown("""
     <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid #3b82f6; margin-bottom: 25px;">

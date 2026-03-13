@@ -15,14 +15,10 @@ BASE_PATH = os.path.dirname(__file__)
 @st.cache_resource
 def load_assets():
     try:
-        # Load Metadata JSON
         with open(os.path.join(BASE_PATH, "model_metadata.json"), 'r') as f:
             meta = json.load(f)
         
-        # Load TensorFlow Feature Extractor
         fe_model = load_model(os.path.join(BASE_PATH, "feature_extractor.keras"), compile=False)
-        
-        # Load XGBoost Regressors
         vol_model = joblib.load(os.path.join(BASE_PATH, "xgb_vol_model.joblib"))
         mape_model = joblib.load(os.path.join(BASE_PATH, "xgb_mape_model.joblib"))
         
@@ -39,8 +35,6 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     
     # Prep Data
     hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').copy()
-    
-    # Feature Engineering (Historis)
     hist['day_sin'] = np.sin(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['day_cos'] = np.cos(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['lag_1'] = np.log1p(hist['Net_Sales'].shift(1))
@@ -48,7 +42,6 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     hist['lag_28'] = hist['Net_Sales'].shift(28)
     hist['rolling_mean_7'] = hist['Net_Sales'].rolling(window=7).mean()
     
-    # Fill Missing Columns & Categories
     all_req_cols = meta['features'] + meta['kat_cols']
     for col in all_req_cols:
         if col not in hist.columns:
@@ -56,12 +49,10 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     
     hist = hist.fillna(0)
 
-    # Padding if data too short
     if len(hist) < time_steps:
         pad = pd.DataFrame(0, index=range(time_steps - len(hist)), columns=hist.columns)
         hist = pd.concat([pad, hist], ignore_index=True)
     
-    # Input Window Terakhir
     hist_input = hist.tail(time_steps)
     curr_win = [row[:expected_f] for row in hist_input[all_req_cols].values.tolist()]
     
@@ -69,26 +60,18 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     kat_onehot_vals = [1 if kat.lower() in c.lower() else 0 for c in meta['kat_cols']]
 
     preds = []
-    # --- LOOP RECURSIVE (30 HARI) ---
     for i in range(1, 31):
-        # 1. Feature Extraction (LSTM)
         X_in = np.array([curr_win[-time_steps:]], dtype='float32')
         lat = fe_model.predict(X_in, verbose=0)
-        
-        # 2. Prediction (XGBoost)
         p_v = vol_model.predict(lat)[0]
         p_m = mape_model.predict(lat)[0]
         
-        # 3. Hybrid Weighting & Thresholding
         val = (recipe['w_vol'] * p_v) + (recipe['w_mape'] * p_m)
         val = max(0, val) if val >= recipe['thresh'] else 0
-        
-        # 4. Smoothing
         if not recipe['smooth']:
             val = np.ceil(val) if kat in ['Kitchen', 'Home'] else np.round(val)
         preds.append(val)
         
-        # 5. Update Input Window (Untuk hari berikutnya)
         nxt_d = last_date + pd.Timedelta(days=i)
         new_row = [
             np.sin(2*nxt_d.day*np.pi/31), np.cos(2*nxt_d.day*np.pi/31), np.log1p(val),
@@ -96,20 +79,15 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
             curr_win[-28][2] if len(curr_win)>=28 else 0,
             np.mean([r[2] for r in curr_win[-7:]])
         ]
-        combined = (new_row + kat_onehot_vals)[:expected_f] # FIX: Jagged Array
+        combined = (new_row + kat_onehot_vals)[:expected_f]
         curr_win.append(combined)
         
-    # Return: Daily, Total (with multiplier), Last Date, History
     return preds, int(np.ceil(np.sum(preds) * recipe['mult'])), last_date, hist.tail(30)
 
 # --- 3. UI RENDERING ---
 def run():
-    # --- HEADER DENGAN ANIMASI (SINKRON DENGAN APP.PY) ---
     st.markdown('<div id="text-split"><h2 class="animate-header">🔮 AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
     
-    # Glass-card description
-    st.markdown('<div class="glass-card" style="margin-bottom: 25px;">Prediksi stok 30 hari ke depan menggunakan Hybrid LSTM-XGBoost dengan sistem Recursive Forecast.</div>', unsafe_allow_html=True)
-
     meta, fe_model, vol_model, mape_model = load_assets()
     
     # Load Data CSV
@@ -136,59 +114,33 @@ def run():
     full_df = pd.concat(all_dfs, ignore_index=True)
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
 
-    # --- INPUT SECTION (WITH DROPDOWN LOOK) ---
-    st.markdown('<div class="animate-header"><h3>⚙️ Prediction Settings</h3></div>', unsafe_allow_html=True)
-    
-    selected_kat = st.selectbox("Pilih Kategori Produk", list(meta['final_recipes'].keys()))
+    st.markdown('<div class="animate-header"><h3>Pilih Kategori Produk</h3></div>', unsafe_allow_html=True)
+    selected_kat = st.selectbox("", list(meta['final_recipes'].keys()), label_visibility="collapsed")
 
-    # Animasi Square (Trigger untuk Anime.js WAAPI)
-    st.markdown('<div style="display: flex; justify-content: center; margin: 20px 0;"><div class="square" style="width: 45px; height: 45px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 12px; box-shadow: 0 10px 20px rgba(59,130,246,0.3);"></div></div>', unsafe_allow_html=True)
+    # Animasi Square (Trigger untuk Anime.js)
+    st.markdown('<div style="display: flex; justify-content: center; margin: 10px 0;"><div class="square" style="width: 40px; height: 40px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 10px;"></div></div>', unsafe_allow_html=True)
 
-    # --- PREDICTION BUTTON ---
-    if st.button("Run Hybrid Prediction 🚀", use_container_width=True):
+    if st.button("Run Hybrid Prediction 🚀"):
         with st.spinner(f"AI sedang menganalisis kategori {selected_kat}..."):
-            
-            # Jalanin Engine Recursive
             daily_preds, total_stok, last_dt, hist_30 = run_recursive_forecast(
                 selected_kat, meta, fe_model, vol_model, mape_model, full_df
             )
             
             # --- PLOTLY CHART ---
             f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
-            
             fig = go.Figure()
-            # Historis
-            fig.add_trace(go.Scatter(
-                x=hist_30['Waktu Pesanan Dibuat'], 
-                y=hist_30['Net_Sales'], 
-                name='Historis', 
-                line=dict(color='#3b82f6', width=3)
-            ))
-            # Forecast
-            fig.add_trace(go.Scatter(
-                x=f_dates, 
-                y=daily_preds, 
-                name='Forecast', 
-                line=dict(color='#f97316', width=3, dash='dash')
-            ))
+            fig.add_trace(go.Scatter(x=hist_30['Waktu Pesanan Dibuat'], y=hist_30['Net_Sales'], name='Historis', line=dict(color='#3b82f6', width=3)))
+            fig.add_trace(go.Scatter(x=f_dates, y=daily_preds, name='Forecast', line=dict(color='#f97316', width=3, dash='dash')))
             
-            # Styling Glassmorphism Plotly
             fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color="white"),
-                height=400,
-                margin=dict(l=20, r=20, t=40, b=20),
-                xaxis=dict(showgrid=False),
-                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color="white"), height=400, margin=dict(l=20, r=20, t=40, b=20),
+                xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)')
             )
-            
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- SUMMARY TABLE (FIXED MATPLOTLIB ERROR) ---
+            # --- SUMMARY TABLE (FIXED ERROR) ---
             st.markdown('<h3 class="animate-header">📦 Ringkasan Kebutuhan Stok</h3>', unsafe_allow_html=True)
-            
             summary_df = pd.DataFrame([{
                 'Kategori': selected_kat,
                 'Rata-rata/Hari': f"{np.mean(daily_preds):.2f} unit",
@@ -196,30 +148,26 @@ def run():
                 'Total Stok (30H)': f"{total_stok} unit"
             }])
 
-            # Render Table pake Matplotlib biar match tema Glass
             fig_tbl, ax = plt.subplots(figsize=(10, 2))
             fig_tbl.patch.set_alpha(0) # Transparent background
             ax.axis('off')
-            
             tbl = ax.table(cellText=summary_df.values, colLabels=summary_df.columns, 
                            cellLoc='center', loc='center', bbox=[0, 0, 1, 1])
             
             tbl.auto_set_font_size(False); tbl.set_fontsize(11)
             
-            # FIX Matplotlib Tuple Color (R, G, B, A)
+            # FIX: Menggunakan Tuple (R, G, B, A) bukan string "rgba"
             for (row, col), cell in tbl.get_celld().items():
                 cell.set_edgecolor((1, 1, 1, 0.2)) # White transparan
                 if row == 0:
                     cell.set_text_props(weight='bold', color='white')
-                    cell.set_facecolor('#1e293b') # Header dark
+                    cell.set_facecolor('#1e293b')
                 else:
                     cell.set_facecolor((1, 1, 1, 0.05)) # White sangat transparan
                     cell.set_text_props(color='white')
             
             st.pyplot(fig_tbl)
-            
-            # Final Glow Success
-            st.success(f"Prediksi selesai. Total stok aman untuk kategori {selected_kat} selama 30 hari ke depan adalah {total_stok} unit.")
+            st.success(f"Prediksi selesai. Stok aman: {total_stok} unit.")
 
 if __name__ == "__main__":
     run()

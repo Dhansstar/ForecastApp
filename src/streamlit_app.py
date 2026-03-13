@@ -5,83 +5,133 @@ from streamlit_option_menu import option_menu
 import eda
 import prediction
 
-st.set_page_config(page_title="DemandSense", layout="wide")
+# 1. SET CONFIG
+st.set_page_config(page_title="DemandSense", layout="wide", initial_sidebar_state="expanded")
 
-# --- LOAD CSS & GIF ---
-def local_css(file_name):
+# --- UTILS: LOAD ASSETS ---
+def apply_custom_assets():
     base_dir = os.path.dirname(__file__)
-    # Path GIF
     gif_path = os.path.join(base_dir, "6.gif")
-    with open(gif_path, "rb") as f:
-        base64_gif = base64.b64encode(f.read()).decode()
     
-    # Path CSS
-    with open(os.path.join(base_dir, file_name)) as f:
-        css_content = f.read().replace("REPLACE_WITH_YOUR_BASE64_HERE", base64_gif)
-        st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+    # Background GIF Loader (Fix Path & Encoding)
+    if os.path.exists(gif_path):
+        with open(gif_path, "rb") as f:
+            base64_gif = base64.b64encode(f.read()).decode()
+        
+        st.markdown(
+            f'''
+            <style>
+            .stApp {{
+                background: url("data:image/gif;base64,{base64_gif}");
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+            }}
+            /* Mencegah tabrakan icon & text di header */
+            .animate-header {{
+                display: flex !important;
+                align-items: center !important;
+                gap: 15px !important;
+                background: transparent !important;
+            }}
+            #text-split h2 {{
+                margin: 0;
+                padding: 10px 0;
+            }}
+            </style>
+            ''', 
+            unsafe_allow_html=True
+        )
 
-local_css("style.css")
-
-# --- JAVASCRIPT RADAR ---
-st.components.v1.html(
-    """
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
-    <script>
-        const doc = window.parent.document;
-        const runAnime = () => {
-            // Animasi Dropdown Sidebar (Stagger)
-            window.parent.anime({
-                targets: doc.querySelectorAll('.nav-link'),
-                translateY: [-20, 0],
-                opacity: [0, 1],
-                delay: window.parent.anime.stagger(100),
-                easing: 'easeOutQuad'
-            });
+    # 2. Inject Anime.js Logic (Staggered Dropdown & Mutation Observer)
+    st.components.v1.html(
+        """
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+        <script>
+            const doc = window.parent.document;
             
-            // Radar Headers
-            const check = setInterval(() => {
-                const headers = doc.querySelectorAll('.animate-header:not([data-animated])');
-                if(headers.length > 0) {
-                    window.parent.anime({
-                        targets: headers,
-                        translateY: [-30, 0],
-                        opacity: [0, 1],
-                        duration: 1000,
-                        easing: 'easeOutExpo'
-                    });
-                    headers.forEach(h => h.setAttribute('data-animated', 'true'));
-                }
-                
-                const squares = doc.querySelectorAll('.square:not([data-animated])');
-                if(squares.length > 0) {
-                    window.parent.anime({
-                        targets: squares,
-                        translateX: '10rem',
-                        rotate: '1turn',
-                        duration: 2000,
-                        direction: 'alternate',
-                        loop: true,
-                        easing: 'easeInOutSine',
-                        opacity: [0, 1]
-                    });
-                    squares.forEach(s => s.setAttribute('data-animated', 'true'));
-                }
-            }, 500);
-        };
-        setTimeout(runAnime, 500);
-    </script>
-    """,
-    height=0,
-)
+            const runAnimations = () => {
+                // --- 1. Animasi Dropdown Menu Sidebar (Satu-satu muncul) ---
+                window.parent.anime({
+                    targets: doc.querySelectorAll('.nav-link'),
+                    translateY: [-30, 0],
+                    opacity: [0, 1],
+                    delay: window.parent.anime.stagger(100),
+                    easing: 'easeOutElastic(1, .6)',
+                    duration: 800
+                });
 
-# --- SIDEBAR & CONTENT ---
+                // --- 2. Animasi Judul & Header Page ---
+                window.parent.anime({
+                    targets: [
+                        doc.querySelectorAll('.animate-header'), 
+                        doc.querySelectorAll('#text-split h2')
+                    ],
+                    translateY: [-50, 0],
+                    opacity: [0, 1],
+                    scale: [0.9, 1],
+                    duration: 1000,
+                    easing: 'easeOutExpo',
+                    delay: 200
+                });
+
+                // --- 3. Animasi Square WAAPI ---
+                window.parent.anime({
+                    targets: doc.querySelectorAll('.square'),
+                    translateX: '10rem',
+                    scale: 1.2,
+                    rotate: '1turn',
+                    duration: 2000,
+                    direction: 'alternate',
+                    loop: true,
+                    easing: 'easeInOutSine'
+                });
+            };
+
+            // Observer: Trigger tiap kali ganti menu (Mutation)
+            const observer = new MutationObserver(() => {
+                setTimeout(runAnimations, 300);
+            });
+            observer.observe(doc.body, { childList: true, subtree: true });
+            
+            setTimeout(runAnimations, 500);
+        </script>
+        """,
+        height=0,
+    )
+
+apply_custom_assets()
+
+# --- SIDEBAR ---
 with st.sidebar:
+    # Sidebar Header dengan ID agar tertangkap script animasi
     st.markdown('<div id="text-split"><h2 class="animate-header">🚀 DEMANDSENSE</h2></div>', unsafe_allow_html=True)
-    selected = option_menu(None, ["EDA", "Prediction"], 
-        icons=["bar-chart-line-fill", "cpu-fill"], 
-        styles={"nav-link": {}, "nav-link-selected": {}}) # Style pindah ke CSS
+    
+    selected = option_menu(
+        menu_title=None,
+        options=["EDA", "Prediction"],
+        icons=["bar-chart-line-fill", "cpu-fill"],
+        default_index=0,
+        styles={
+            "container": {"background-color": "transparent", "padding": "5px"},
+            "nav-link": {
+                "font-size": "16px", "text-align": "left", "margin": "10px 0px",
+                "color": "white", "border-radius": "10px", 
+                "background": "rgba(255, 255, 255, 0.05)",
+                "transition": "all 0.3s"
+            },
+            "nav-link-selected": {
+                "background-color": "#3b82f6",
+                "box-shadow": "0px 10px 20px rgba(59, 130, 246, 0.4)",
+                "font-weight": "bold"
+            }
+        }
+    )
 
+# --- ROUTING DENGAN WRAPPER ---
+st.markdown('<div class="main-content">', unsafe_allow_html=True)
 if selected == "EDA":
     eda.run()
-else:
+elif selected == "Prediction":
     prediction.run()
+st.markdown('</div>', unsafe_allow_html=True)

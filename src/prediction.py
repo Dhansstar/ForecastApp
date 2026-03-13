@@ -76,8 +76,8 @@ def run():
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
     # UI Header
-    st.markdown('<div id="text-split"><h2 class="animate-header">🔮 AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
-    st.markdown('<div class="glass-card">Prediksi stok 30 hari ke depan menggunakan <strong>Hybrid LSTM-XGBoost</strong>.</div>', unsafe_allow_html=True)
+    st.markdown('<div id="text-split"><h2 class="animate-header">AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
+   
 
     meta, fe_model, vol_model, mape_model = load_assets()
     
@@ -103,7 +103,6 @@ def run():
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
 
     # --- BAGIAN INPUT (DIBUNGKUS TOTAL) ---
-    st.markdown('<div class="input-wrapper">', unsafe_allow_html=True)
     st.markdown('<p style="color: #94a3b8; font-weight: 600; margin-bottom: 5px;">Pilih Kategori Produk</p>', unsafe_allow_html=True)
     
     selected_kat = st.selectbox("pilih", list(meta['final_recipes'].keys()), label_visibility="collapsed")

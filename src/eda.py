@@ -170,7 +170,15 @@ def run():
 
     st.write("#### Average Shipping Cost by Province (Highest)")
     ship_prov = df.groupby('Provinsi')['Ongkos Kirim Dibayar oleh Pembeli'].mean().nlargest(15).reset_index()
-    fig_ship = px.bar(ship_prov, x='Ongkos Kirim Dibayar oleh Pembeli', y='Provinsi', orientation='h', color_discrete_sequence=['#f97316'])
+ 
+    fig_ship = px.bar(
+        ship_prov, 
+        x='Ongkos Kirim Dibayar oleh Pembeli', 
+        y='Provinsi', 
+        orientation='h', 
+        color_discrete_sequence=['#f97316'] # Pake list di dalam sini
+    )
+    
     st.plotly_chart(apply_plotly_style(fig_ship), use_container_width=True)
 
     # ==============================

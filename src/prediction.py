@@ -29,14 +29,17 @@ def load_assets():
 def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     recipe = meta['final_recipes'][kat]
     time_steps = meta['time_steps']
-    expected_f = fe_model.input_shape[-1]
+    # Ambil jumlah fitur yang diminta model secara otomatis
+    expected_f_count = fe_model.input_shape[-1] 
     
-    # Ambil data historis
+    # 1. Prep Data
     hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').copy()
     hist['log_sales'] = np.log1p(hist['Net_Sales'])
     
-    # Pastikan semua kolom fitur & kategori ada (Mencegah KeyError)
+    # 2. List Fitur Wajib
     all_req_cols = meta['features'] + meta['kat_cols']
+    
+    # 3. Fill Missing Columns & Maintenance Features
     for col in all_req_cols:
         if col not in hist.columns:
             if "Kategori" in col or col in meta['kat_cols']:
@@ -55,42 +58,45 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
                 hist[col] = 0
     
     hist = hist.fillna(0)
-    hist_input = hist.tail(time_steps)
     
-    # Inisialisasi window [time_steps, n_features]
-    curr_win = hist_input[all_req_cols].values.tolist()
-    last_date = pd.to_datetime(hist_input['Waktu Pesanan Dibuat'].iloc[-1])
+    # 4. Filter dan Pastikan JUMLAH fitur tepat
+    # Kita ambil kolom sesuai urutan all_req_cols, lalu kita potong/pad sesuai expected_f_count
+    hist_input = hist.tail(time_steps)[all_req_cols]
+    curr_win = hist_input.values.tolist()
+    
+    # Proteksi: Pastikan tiap row di curr_win punya panjang tepat expected_f_count
+    curr_win = [row[:expected_f_count] for row in curr_win]
+
+    last_date = pd.to_datetime(hist['Waktu Pesanan Dibuat'].iloc[-1])
     kat_onehot_vals = [1 if kat.lower() in c.lower() else 0 for c in meta['kat_cols']]
 
     daily_preds = []
     
     for i in range(1, 31):
-        # Input Tensor
+        # Bentuk Input Tensor [1, time_steps, expected_f_count]
         X_in = np.array([curr_win[-time_steps:]], dtype='float32')
         
-        # Hybrid Predict
+        # Predict
         lat = fe_model.predict(X_in, verbose=0)
         p_v = vol_model.predict(lat)[0]
         p_m = mape_model.predict(lat)[0]
         
-        # Hybrid Calculation - Menjaga fluktuasi sesuai EDA
+        # Hybrid Calculation
         val = (recipe['w_vol'] * p_v) + (recipe['w_mape'] * p_m)
-        if i > 10: val *= 1.03 # Booster trend
+        if i > 10: val *= 1.03
             
         val = max(0, val) if val >= recipe['thresh'] else 0
-        
-        # Rounding cerdas
         if not recipe['smooth']:
             val = np.ceil(val) if kat in ['Kitchen', 'Home'] else np.round(val)
         
         daily_preds.append(val)
         
-        # Recursive feedback (Syncing logs & rolling mean)
+        # Recursive Step
         nxt_d = last_date + pd.Timedelta(days=i)
         log_val = np.log1p(val)
         recent_logs = [r[2] for r in curr_win[-6:]] + [log_val]
         
-        new_row = [
+        new_features = [
             np.sin(2*np.pi*nxt_d.day/31), 
             np.cos(2*np.pi*nxt_d.day/31), 
             log_val,
@@ -98,7 +104,10 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
             curr_win[-28][2] if len(curr_win)>=28 else 0,
             np.mean(recent_logs)
         ]
-        curr_win.append((new_row + kat_onehot_vals)[:expected_f])
+        
+        # Gabungkan dan POTONG sesuai dimensi model (expected_f_count)
+        full_row = (new_features + kat_onehot_vals)[:expected_f_count]
+        curr_win.append(full_row)
         
     total_stok = int(np.ceil(np.sum(daily_preds) * recipe['mult']))
     return daily_preds, total_stok, last_date, hist.tail(30)
@@ -153,7 +162,6 @@ def run():
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
 
     # Input Section
-    st.markdown('<div class="input-wrapper">', unsafe_allow_html=True)
     st.markdown('<p style="color: #94a3b8; font-weight: 600; margin-bottom: 10px;">Pilih Kategori Prioritas</p>', unsafe_allow_html=True)
     selected_kat = st.selectbox("pilih", list(meta['final_recipes'].keys()), label_visibility="collapsed")
     st.markdown('<div style="display: flex; justify-content: center; margin: 15px 0;"><div class="square" style="width: 32px; height: 32px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 8px;"></div></div>', unsafe_allow_html=True)

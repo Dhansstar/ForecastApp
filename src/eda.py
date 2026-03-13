@@ -1,559 +1,222 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import os
 import io
 
+# --- CONFIG & THEME ---
+# Warna aksen sesuai style.css lo biar sinkron
+COLOR_PALETTE = ['#3b82f6', '#f97316', '#10b981', '#a855f7', '#ec4899', '#64748b']
 
+# Function buat nerapin layout dark theme ke Plotly
+def update_plotly_theme(fig):
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', # Transparan biar nempel background GIF
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#f8fafc", family="'Inter', sans-serif"), # Font putih soft
+        margin=dict(l=20, r=20, t=50, b=20),
+        xaxis=dict(showgrid=False, zeroline=False, color="#94a3b8"),
+        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', zeroline=False, color="#94a3b8"),
+        legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color="#f8fafc"))
+    )
+    return fig
+
+# --- 1. DATA LOADING ---
 @st.cache_data
 def load_data():
-
     base_dir = os.path.dirname(__file__)
+    # Pastikan file CSV ini ada di folder yang sama
     data_path = os.path.join(base_dir, "data_from_DE.csv")
+    
+    if not os.path.exists(data_path):
+        st.error(f"❌ File data tidak ditemukan di: {data_path}")
+        return pd.DataFrame()
 
     df = pd.read_csv(data_path)
-
-    df['Weekend'] = df['Weekend'].replace({0:'No',1:'Yes'})
+    df['Weekend'] = df['Weekend'].replace({0:'No', 1:'Yes'})
     df['Waktu Pesanan Dibuat'] = pd.to_datetime(df['Waktu Pesanan Dibuat'])
 
-    cols = [
-        'Total Diskon',
-        'Ongkos Kirim Dibayar oleh Pembeli',
-        'Estimasi Potongan Biaya Pengiriman',
-        'Perkiraan Ongkos Kirim'
-    ]
-
+    cols = ['Total Diskon', 'Ongkos Kirim Dibayar oleh Pembeli',
+            'Estimasi Potongan Biaya Pengiriman', 'Perkiraan Ongkos Kirim']
     df[cols] = df[cols].astype('int64')
-
     df['Provinsi'] = df['Provinsi'].str.replace(r'\(.*\)', '', regex=True).str.strip()
-
     return df
 
-
-def run_eda():
-
-    st.title("📊 Market Demand and Sales Analysis")
+# --- MAIN EDA FUNCTION ---
+def run():
+    # Header Spesifik sesuai style.css lo
+    st.markdown('<div id="text-split"><h2 class="text-xl">📊 MARKET DEMAND & SALES ANALYSIS</h2></div>', unsafe_allow_html=True)
 
     st.markdown("""
-Analisis ini bertujuan untuk memahami pola permintaan penjualan pada e-commerce sales dataset melalui eksplorasi tren penjualan, distribusi produk, perilaku pembelian konsumen, serta faktor operasional yang mempengaruhi transaksi.
+    <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6; margin-bottom: 20px;">
+    Eksplorasi tren penjualan, distribusi produk, dan perilaku konsumen untuk memahami dinamika permintaan sebelum proses forecasting.
+    </div>
+    """, unsafe_allow_html=True)
 
-Insight yang dihasilkan dari analisis ini digunakan sebagai dasar untuk memahami dinamika permintaan sebelum dilakukan proses demand forecasting.
-
-""")
-
-    # ==============================
-    # LOAD DATA
-    # ==============================
-
-    with st.spinner("Loading dataset..."):
+    with st.spinner("Analyzing dataset..."):
         df = load_data()
-
-    # ==============================
-    # EDA PROCESS (TIDAK DITAMPILKAN)
-    # ==============================
-
-    # check unique weekend values
-    weekend_unique = df['Weekend'].unique()
-
-    # dataframe info
-    buffer = io.StringIO()
-    df.info(buf=buffer)
-    dataframe_info = buffer.getvalue()
-
-    # duplicate check
-    duplicate_count = df.duplicated().sum()
-
-    # missing value check
-    missing_values = df.isnull().sum()
-
-    # semua variabel ini tetap ada untuk analisis
-    _ = weekend_unique
-    _ = dataframe_info
-    _ = duplicate_count
-    _ = missing_values
-
-    # ==============================
-    # PRODUCT DISTRIBUTION
-    # ==============================
-
-    st.header("Inspecting product distribution")
-
-    product_count = df['Kategori Produk'].value_counts()
-    st.write(product_count)
-
-    colors = cm.Set2(range(len(product_count)))
-
-    fig, ax = plt.subplots()
-    ax.pie(product_count,
-    labels=product_count.index,
-    autopct='%1.1f%%',
-    colors=colors)
-
-    ax.set_title("Proporsi Kategori Produk")
-    st.pyplot(fig)
-
-    st.markdown("""
-
-- **Kitchen & Dining (36.5%)** dan **Home Organization & Living (33.1%)** mendominasi penjualan dan menyumbang hampir **70% dari total transaksi**.
-- Hal ini menunjukkan bahwa permintaan terutama berasal dari **produk kebutuhan rumah tangga dan peralatan dapur**.
-- **Tools & Accessories (~16%)** menjadi kategori pendukung dengan kontribusi menengah.
-- **Food Storage & Packaging (~8%)**, **Other (4%)**, dan **Bathroom & Cleaning (2.4%)** memiliki kontribusi yang relatif kecil terhadap total penjualan.
-- Secara keseluruhan, demand sangat terkonsentrasi pada **beberapa kategori utama**, terutama produk rumah tangga.
-""")
-
-    # ==============================
-    # CATEGORICAL COLUMN
-    # ==============================
-
-    cat_cols = list(df.select_dtypes(include='object').columns)
-
-    listItem = []
-
-    for col in cat_cols:
-        listItem.append([col, df[col].nunique(), df[col].unique()])
-
-    cat_df = pd.DataFrame(
-        columns=['Column Name','Unique Count','Unique Values'],
-        data=listItem
-    )
-
-    cat_cols_filtered = df.select_dtypes('object') \
-        .drop(columns=['Kategori Produk','Provinsi','Alasan Pembatalan']) \
-        .columns
-
-
-    # ==============================
-    # NUMERIC COLUMN
-    # ==============================
-
-    numeric_summary = df.drop(columns='Waktu Pesanan Dibuat').describe().round(2)
-
-    num_cols = df.select_dtypes(np.number).columns
     
-    st.header("Exploratory Data Analysis")
-    # ==============================
-    # MONTHLY SALES DISTRIBUTION
-    # ==============================
+    if df.empty: return # Stop jika data gagal load
 
-    st.header("1. Monthly Sales Distribution")
+    # Prep data untuk visualisasi
+    df['year_month'] = df['Waktu Pesanan Dibuat'].dt.to_period('M').astype(str)
 
+    # ==========================================
+    # CONTAINER 1: OVERVIEW METRICS
+    # ==========================================
+    st.markdown("### 📈 Quick Overview")
+    total_sales = df['Jumlah Terjual Bersih'].sum()
+    avg_disc = df['Total Diskon'].mean()
+    unique_cats = df['Kategori Produk'].nunique()
 
-    df['year_month'] = df['Waktu Pesanan Dibuat'].dt.to_period('M')
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Unit Terjual", f"{total_sales:,} Unit")
+    c2.metric("Rata-rata Diskon", f"Rp {avg_disc:,.0f}")
+    c3.metric("Jumlah Kategori", f"{unique_cats}")
+    
+    st.divider()
 
-    monthly_category = (
-    df.groupby(['year_month','Kategori Produk'])['Jumlah Terjual Bersih']
-    .sum()
-    .reset_index()
-    )
+    # ==========================================
+    # CONTAINER 2: PRODUCT DISTRIBUTION (PIE)
+    # ==========================================
+    st.markdown("### 🍰 Product Category Proportion")
+    product_count = df['Kategori Produk'].value_counts().reset_index()
+    product_count.columns = ['Kategori Produk', 'Total']
 
-    monthly_category['year_month'] = monthly_category['year_month'].astype(str)
+    fig_pie = px.pie(product_count, values='Total', names='Kategori Produk', 
+                     color_discrete_sequence=COLOR_PALETTE,
+                     hole=0.5) # Bikin donut chart biar lebih modern
+    
+    fig_pie.update_traces(textposition='inside', textinfo='percent+label', 
+                          marker=dict(line=dict(color='rgba(15, 23, 42, 0.7)', width=2)))
+    fig_pie = update_plotly_theme(fig_pie)
+    fig_pie.update_layout(showlegend=False, title_text="Proporsi Penjualan per Kategori", title_x=0.5)
+    
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-    pivot_df = monthly_category.pivot(
-    index='year_month',
-    columns='Kategori Produk',
-    values='Jumlah Terjual Bersih'
-    ).fillna(0)
+    with st.expander("Lihat Insight Kategori"):
+        st.markdown("""
+        - **Kitchen & Dining** dan **Home Organization & Living** mendominasi penjualan (>70%).
+        - Permintaan utama berasal dari produk kebutuhan rumah tangga dasar.
+        """)
 
-    fig, ax = plt.subplots(figsize=(12,8))
+    # ==========================================
+    # CONTAINER 3: SALES TREND & GROWTH (STACKED AREA)
+    # ==========================================
+    st.markdown('<div id="text-split"><h2 class="text-xl">1. Monthly Sales Trend & Growth</h2></div>', unsafe_allow_html=True)
 
-    pivot_df.plot(kind='area',stacked=True,alpha=0.85,ax=ax)
+    # Stacked Area Chart (Plotly Express)
+    monthly_category = df.groupby(['year_month','Kategori Produk'])['Jumlah Terjual Bersih'].sum().reset_index()
+    
+    fig_area = px.area(monthly_category, x='year_month', y='Jumlah Terjual Bersih', color='Kategori Produk',
+                       color_discrete_sequence=COLOR_PALETTE,
+                       title="Monthly Sales Distribution by Category")
+    
+    fig_area = update_plotly_theme(fig_area)
+    fig_area.update_layout(xaxis_title="Bulan", yaxis_title="Total Sold")
+    st.plotly_chart(fig_area, use_container_width=True)
 
-    plt.title('Monthly Sales Distribution of Each Product')
-    plt.xlabel('Month')
-    plt.ylabel('Total Sold')
-    plt.xticks(rotation=45)
-    plt.legend(title='Product Category',bbox_to_anchor=(1.05,1))
-    st.pyplot(fig)
-
-    monthly_std = pivot_df.std().sort_values(ascending=False)
-    st.write(monthly_std)
-    st.markdown("""
-
-- Penjualan bulanan secara konsisten didominasi oleh **Kitchen & Dining** dan **Home Organization & Living**.
-- **Tools & Accessories** menunjukkan kontribusi yang stabil meskipun volumenya lebih kecil.
-- Tiga kategori lainnya memiliki kontribusi yang lebih kecil tetapi tetap mengikuti pola fluktuasi penjualan secara keseluruhan.
-- **Kitchen & Dining memiliki variabilitas permintaan tertinggi**, menunjukkan perubahan demand yang cukup besar antar bulan.
-- Hal ini mengindikasikan bahwa perubahan total penjualan bulanan sebagian besar dipengaruhi oleh kategori **Kitchen & Dining**.
-""")
-
-    # ==============================
-    # MONTHLY SALES TREND
-    # ==============================
-
-    st.header("2. Monthly Sales Trend and Growth")
-
-    monthly_total = (
-    df.groupby('year_month')['Jumlah Terjual Bersih']
-    .sum()
-    .reset_index()
-    )
-
-    monthly_total['year_month'] = monthly_total['year_month'].astype(str)
-
-    fig, ax = plt.subplots(figsize=(12,5))
-
-    sns.lineplot(data=monthly_total,
-    x='year_month',
-    y='Jumlah Terjual Bersih',
-    marker='o',
-    linewidth=2)
-
-    plt.xticks(rotation=45)
-
-    st.pyplot(fig)
-    st.markdown("""
-
-- Tren penjualan bulanan menunjukkan **fluktuasi yang cukup tajam** dengan beberapa lonjakan penjualan di periode tertentu.
-- Pola ini mengindikasikan bahwa permintaan **dipengaruhi oleh faktor eksternal** seperti promo marketplace atau event musiman.
-- Analisis **Month-over-Month (MoM) Growth** menunjukkan bahwa pertumbuhan penjualan bersifat **sangat volatil**.
-- Rolling **3-month average smoothing** menunjukkan bahwa permintaan cenderung **naik turun tanpa tren pertumbuhan jangka panjang yang kuat**.
-- Lonjakan penjualan kemungkinan besar dipicu oleh **event-driven demand**, bukan pertumbuhan organik yang konsisten.
-""")
+    # MoM Growth & Rolling Mean (Pake Subplots go.Figure biar pro)
+    monthly_total = df.groupby('year_month')['Jumlah Terjual Bersih'].sum().reset_index()
     monthly_total['MoM_growth_pct'] = monthly_total['Jumlah Terjual Bersih'].pct_change()*100
-
-    fig, ax = plt.subplots(figsize=(12,4))
-
-    sns.barplot(data=monthly_total,
-    x='year_month',
-    y='MoM_growth_pct')
-
-    plt.axhline(0,color='black')
-
-    plt.xticks(rotation=45)
-
-    st.pyplot(fig)
-    st.markdown("""
-
-                
-- Analisis **Month-over-Month (MoM) Growth** menunjukkan bahwa pertumbuhan penjualan bersifat **sangat volatil**.
-- Beberapa bulan mengalami **lonjakan penjualan yang tinggi**, namun sering diikuti oleh **penurunan tajam pada bulan berikutnya**.
-- Pola ini menunjukkan bahwa demand **tidak stabil** dan cenderung dipengaruhi oleh **momentum tertentu**.
-- Lonjakan penjualan kemungkinan besar dipicu oleh **event-driven demand**, seperti promo marketplace, diskon musiman, atau event belanja besar.
-""")
-
     monthly_total['Rolling_3M'] = monthly_total['Jumlah Terjual Bersih'].rolling(3).mean()
 
-    fig, ax = plt.subplots(figsize=(12,4))
+    # Create subplot: 2 baris, 1 kolom
+    fig_combo = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                              vertical_spacing=0.1,
+                              subplot_titles=("MoM Growth (%)", "Rolling 3-Month Average"))
 
-    sns.barplot(data=monthly_total,
-    x='year_month',
-    y='Rolling_3M')
+    # Trace 1: MoM Growth (Bar)
+    fig_combo.add_trace(
+        go.Bar(x=monthly_total['year_month'], y=monthly_total['MoM_growth_pct'], 
+               name='MoM Growth', marker_color='#f97316', opacity=0.8),
+        row=1, col=1
+    )
+    # Garis 0%
+    fig_combo.add_shape(type="line", x0=monthly_total['year_month'].iloc[0], x1=monthly_total['year_month'].iloc[-1], 
+                        y0=0, y1=0, line=dict(color="white", width=1, dash="dash"), row=1, col=1)
 
-    plt.xticks(rotation=45)
+    # Trace 2: Rolling Average (Area)
+    fig_combo.add_trace(
+        go.Scatter(x=monthly_total['year_month'], y=monthly_total['Rolling_3M'], 
+                   name='Rolling 3M Avg', fill='tozeroy', line=dict(color='#3b82f6', width=3)),
+        row=2, col=1
+    )
 
-    st.pyplot(fig)
-    st.markdown("""
+    fig_combo = update_plotly_theme(fig_combo)
+    fig_combo.update_layout(height=600, showlegend=False)
+    st.plotly_chart(fig_combo, use_container_width=True)
 
-- Untuk melihat pola permintaan yang lebih stabil, dilakukan **smoothing menggunakan rolling 3-month average**.
-- Teknik ini membantu **mengurangi fluktuasi jangka pendek** sehingga pola permintaan dasar lebih mudah diamati.
-- Setelah smoothing, terlihat bahwa permintaan cenderung **bergerak dalam pola naik-turun yang relatif konsisten**.
-- Secara keseluruhan, **tidak terlihat tren pertumbuhan jangka panjang yang kuat** pada penjualan.
-- Lonjakan penjualan pada bulan tertentu kemungkinan besar disebabkan oleh **promosi atau event musiman**, bukan oleh peningkatan demand yang berkelanjutan.
-""")
+    # ==========================================
+    # CONTAINER 4: REVENUE ANALYSIS (GROUPED BAR)
+    # ==========================================
+    st.markdown('<div id="text-split"><h2 class="text-xl">2. Revenue Analysis</h2></div>', unsafe_allow_html=True)
 
-    # ==============================
-    # REVENUE
-    # ==============================
-
-    st.header("3. Gross and Net Revenue")
+    df['Gross_Revenue'] = df[['Total Pembayaran','Total Diskon','Ongkos Kirim Dibayar oleh Pembeli']].sum(axis=1)
     
-    df['Total Harga'] = df[
-    ['Total Pembayaran','Total Diskon','Ongkos Kirim Dibayar oleh Pembeli']
-    ].sum(axis=1)
-
-    revenue_summary = (
-    df.groupby('Kategori Produk')
-    .agg(
-    Gross_Revenue=('Total Harga','sum'),
-    Net_Revenue=('Total Pembayaran','sum')
-    )
-    .sort_values('Gross_Revenue',ascending=False)
-    .reset_index()
-    )
-
-    revenue_summary['Cost_Revenue'] = revenue_summary['Gross_Revenue'] - revenue_summary['Net_Revenue']
-
-    st.write(revenue_summary)
-
-    fig, ax = plt.subplots(figsize=(12,6))
-
-    x = np.arange(len(revenue_summary['Kategori Produk']))
-    width = 0.25
-
-    bars1 = ax.bar(x - width, revenue_summary['Gross_Revenue'], width, label='Gross Revenue')
-    bars2 = ax.bar(x, revenue_summary['Net_Revenue'], width, label='Net Revenue')
-    bars3 = ax.bar(x + width, revenue_summary['Cost_Revenue'], width, label='Cost Revenue')
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(revenue_summary['Kategori Produk'], rotation=45)
-
-    ax.set_title("Gross vs Net vs Cost Revenue by Product Category")
-    ax.set_ylabel("Revenue")
-    ax.legend()
-
-    # add value label
-    for bars in [bars1, bars2, bars3]:
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(
-                bar.get_x() + bar.get_width()/2,
-                height,
-                f'{height/1e6:.0f}M',
-                ha='center',
-                va='bottom',
-                fontsize=9
-            )
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-    st.markdown("""
-
-- **Kitchen & Dining** menjadi kontributor pendapatan terbesar dengan gross revenue sekitar **500 juta** dan net revenue sekitar **423 juta**.
-- Selisih revenue menunjukkan adanya **cost yang cukup besar**, terutama dari diskon dan biaya logistik.
-- **Home Organization & Living** memiliki volume transaksi tinggi namun net revenue lebih rendah karena cost yang lebih besar.
-- **Tools & Accessories** menghasilkan net revenue yang relatif lebih efisien dengan cost yang lebih kecil.
-- Pola ini menunjukkan bahwa kategori dengan volume tinggi biasanya membutuhkan **promo dan subsidi ongkir untuk mendorong penjualan**.
-""")
-
-    # ==============================
-    # WEEKDAY VS WEEKEND
-    # ==============================
-
-    st.header("4. Weekday vs Weekend Sales")
-
-    weekend_sales = (
-    df.groupby(['Weekend','Kategori Produk'])['Jumlah Terjual Bersih']
-    .sum()
-    .reset_index()
-    )
-
-    pivot_weekend = weekend_sales.pivot(
-    index='Kategori Produk',
-    columns='Weekend',
-    values='Jumlah Terjual Bersih'
-    ).fillna(0)
-
-    fig, ax = plt.subplots(figsize=(10,6))
-
-    pivot_weekend.plot(kind='bar',ax=ax)
-
-    plt.xticks(rotation=45)
-
-    st.pyplot(fig)
-    st.markdown("""
-
-- Penjualan pada **weekday secara konsisten lebih tinggi dibandingkan weekend**.
-- Hal ini menunjukkan bahwa sebagian besar transaksi terjadi saat **hari kerja**.
-- Perilaku ini kemungkinan dipengaruhi oleh aktivitas konsumen yang membuka marketplace saat menjalani rutinitas harian.
-""")
-
-    # ==============================
-    # PROVINCE SALES
-    # ==============================
-
-    st.header("5. Sales by Provinces")
-
-    province_sales = (
-    df.groupby('Provinsi')['Jumlah']
-    .sum()
-    .sort_values(ascending=False)
-    .head(10)
-    )
-
-    fig, ax = plt.subplots(figsize=(8,6))
-
-    sns.barplot(x=province_sales.values,y=province_sales.index)
-
-    st.pyplot(fig)
-    st.markdown("""
-
-- Permintaan produk paling tinggi terkonsentrasi di **Pulau Jawa**, terutama **Jawa Barat, DKI Jakarta, dan Banten**.
-- Wilayah ini memiliki kepadatan penduduk tinggi serta akses logistik yang lebih baik.
-- Provinsi seperti **Jawa Timur, Jawa Tengah, dan Sumatera Selatan** juga memberikan kontribusi penjualan yang cukup signifikan.
-- Provinsi di luar Jawa menunjukkan volume penjualan lebih kecil tetapi tetap memiliki potensi pasar.
-""")
-
-    shipping_by_province = (
-    df.groupby('Provinsi')['Ongkos Kirim Dibayar oleh Pembeli']
-    .mean()
-    .sort_values(ascending=False)
-    .reset_index()
-    )
-
-    top_shipping = shipping_by_province.head(15)
-
-    fig, ax = plt.subplots(figsize=(10,6))
-
-    sns.barplot(data=top_shipping,
-    x='Ongkos Kirim Dibayar oleh Pembeli',
-    y='Provinsi')
-
-    st.pyplot(fig)
-    st.markdown("""
-
-- Rata-rata ongkir tertinggi berasal dari wilayah **Indonesia Timur** seperti Papua dan Maluku.
-- Biaya logistik yang tinggi menjadi salah satu hambatan utama distribusi penjualan di wilayah tersebut.
-- Hal ini menunjukkan bahwa **akses logistik dan jarak pengiriman mempengaruhi permintaan produk**.
-- Strategi seperti **subsidi ongkir atau promo khusus** dapat membantu meningkatkan penjualan di wilayah dengan ongkir tinggi.
-""")
-
-    # ==============================
-    # PAYMENT METHODS
-    # ==============================
-
-    st.header("6. Payment Methods to Drive Sales and Revenue")
-
-    payment_summary = (
-    df.groupby('Metode Pembayaran')
-    .agg(
-    Total_Quantity=('Jumlah','sum'),
-    Total_Revenue=('Total Pembayaran','sum')
-    )
-    .sort_values('Total_Quantity',ascending=False)
-    .head(5)
-    .reset_index()
-    )
-
-    fig, ax = plt.subplots(1,2,figsize=(14,5))
-
-    sns.barplot(data=payment_summary,
-    x='Total_Quantity',
-    y='Metode Pembayaran',
-    ax=ax[0])
-
-    sns.barplot(data=payment_summary,
-    x='Total_Revenue',
-    y='Metode Pembayaran',
-    ax=ax[1])
-
-    st.pyplot(fig)
-    st.markdown("""
-
-- **COD (Cash on Delivery)** merupakan metode pembayaran yang paling sering digunakan.
-- COD juga menjadi **kontributor revenue terbesar** karena tingginya volume transaksi.
-- **Online Payment dan ShopeePay** memiliki kontribusi transaksi yang lebih kecil namun tetap stabil.
-- **SPayLater** memiliki jumlah transaksi lebih kecil tetapi menghasilkan **nilai pembelian yang relatif lebih tinggi**.
-- Hal ini menunjukkan bahwa metode cicilan dapat meningkatkan **average order value**.
-""")
-
+    revenue_summary = df.groupby('Kategori Produk').agg(
+        Gross=('Gross_Revenue','sum'),
+        Net=('Total Pembayaran','sum')
+    ).reset_index()
+    revenue_summary['Cost'] = revenue_summary['Gross'] - revenue_summary['Net']
     
+    # Melt dataframe biar gampang dibikin Grouped Bar di Plotly
+    rev_melt = revenue_summary.melt(id_vars='Kategori Produk', var_name='Type', value_name='Value')
+
+    fig_rev = px.bar(rev_melt, x='Kategori Produk', y='Value', color='Type', barmode='group',
+                     color_discrete_map={'Gross': '#64748b', 'Net': '#3b82f6', 'Cost': '#ec4899'},
+                     title="Gross vs Net vs Cost Revenue")
     
-    st.header("Executive Summary")
+    fig_rev.update_traces(texttemplate='%{y:.2s}', textposition='outside', textfont=dict(color='white'))
+    fig_rev = update_plotly_theme(fig_rev)
+    fig_rev.update_layout(yaxis_title="Revenue (Rp)", xaxis_tickangle=45)
+    st.plotly_chart(fig_rev, use_container_width=True)
 
-    st.write("""
-    Analisis ini bertujuan untuk memahami pola permintaan, faktor pendorong penjualan, serta beberapa aspek operasional yang mempengaruhi performa penjualan dalam dataset. Dengan mengeksplorasi distribusi produk, tren penjualan bulanan, perilaku pembelian konsumen, hingga faktor logistik dan operasional, analisis ini memberikan gambaran menyeluruh mengenai dinamika penjualan yang terjadi.
-    """)
+    # ==========================================
+    # CONTAINER 5: GEOGRAPHIC & OPERATIONAL (HORIZONTAL BAR)
+    # ==========================================
+    st.markdown('<div id="text-split"><h2 class="text-xl">3. Geographic & Operational Drivers</h2></div>', unsafe_allow_html=True)
 
-    st.subheader("Key Findings")
+    col_geo, col_pay = st.columns(2)
 
-    st.write("""
-    1. Penjualan terkonsentrasi pada beberapa kategori utama, terutama Kitchen & Dining dan Home Organization & Living yang menyumbang mayoritas transaksi.
-    2. Permintaan bersifat fluktuatif dan cenderung dipengaruhi oleh momentum tertentu, seperti event promosi atau periode belanja musiman.
-    3. Metode pembayaran COD masih mendominasi transaksi, meskipun metode pembayaran digital mulai menunjukkan kontribusi pendapatan yang signifikan.
-    4. Biaya logistik menjadi faktor penting dalam distribusi penjualan, dengan wilayah di luar Pulau Jawa memiliki ongkir yang jauh lebih tinggi.
-    5. Aktivitas pembelian lebih banyak terjadi pada hari kerja, menunjukkan pola belanja yang berkaitan dengan rutinitas harian konsumen.
-    6. Tingkat return produk relatif rendah, yang menunjukkan bahwa sebagian besar produk sesuai dengan ekspektasi pembeli.
-    7. Pembatalan pesanan lebih banyak dipicu oleh keputusan pembeli, bukan oleh masalah produk atau operasional.
-    """)
+    with col_geo:
+        st.write("#### Top 10 Provinces by Volume")
+        province_sales = df.groupby('Provinsi')['Jumlah'].sum().sort_values(ascending=False).head(10).reset_index()
+        fig_prov = px.bar(province_sales, x='Jumlah', y='Provinsi', orientation='h',
+                          color='Jumlah', color_continuous_scale='Blues')
+        fig_prov = update_plotly_theme(fig_prov)
+        fig_prov.update_layout(showlegend=False, coloraxis_showscale=False, yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fig_prov, use_container_width=True)
 
-    st.header("1. Demand Overview")
+    with col_pay:
+        st.write("#### Payment Methods Contribution")
+        payment_summary = df.groupby('Metode Pembayaran')['Total Pembayaran'].sum().sort_values(ascending=False).reset_index()
+        fig_pay = px.bar(payment_summary, x='Total Pembayaran', y='Metode Pembayaran', orientation='h',
+                         color='Metode Pembayaran', color_discrete_sequence=COLOR_PALETTE)
+        fig_pay = update_plotly_theme(fig_pay)
+        fig_pay.update_layout(showlegend=False, yaxis=dict(autorange="reversed"), xaxis_title="Total Revenue")
+        st.plotly_chart(fig_pay, use_container_width=True)
 
-    st.write("""
-    Secara umum, penjualan dalam dataset didominasi oleh beberapa kategori produk utama. Kitchen & Dining dan Home Organization & Living menyumbang hampir 70% dari total transaksi, menjadikannya kontributor utama terhadap volume penjualan. Kategori Tools & Accessories juga memberikan kontribusi yang cukup signifikan, sementara kategori lainnya memiliki porsi penjualan yang lebih kecil.
+    # ==========================================
+    # FINAL EXECUTIVE SUMMARY (CLEAN LOOK)
+    # ==========================================
+    st.divider()
+    st.markdown('<div id="text-split"><h2 class="text-xl">Executive Summary</h2></div>', unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="background: rgba(59, 130, 246, 0.05); padding: 20px; border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.2);">
+    <h4 style="color: #3b82f6; margin-top:0;">Key Findings</h4>
+    <ol style="color: #f8fafc; font-size: 0.95rem;">
+        <li><b>Konsentrasi Produk:</b> Mayoritas transaksi (70%) terkonsentrasi di kategori Kitchen & Home Organization.</li>
+        <li><b>Pola Volatil:</b> Permintaan sangat fluktuatif, dipicu oleh event promosi (Event-Driven Demand), bukan pertumbuhan organik yang stabil.</li>
+        <li><b>COD Dominan:</b> Metode pembayaran COD masih menjadi pendorong utama volume transaksi dan revenue.</li>
+        <li><b>Hambatan Logistik:</b> Wilayah Indonesia Timur (Papua, Maluku) menghadapi kendala ongkir tinggi yang menghambat distribusi.</li>
+    </ol>
+    </div>
+    """, unsafe_allow_html=True)
 
-    Dari sisi geografis, sebagian besar penjualan terkonsentrasi di provinsi-provinsi dengan populasi tinggi dan akses logistik yang baik, khususnya di wilayah Pulau Jawa seperti Jawa Barat, DKI Jakarta, dan Banten. Hal ini menunjukkan bahwa permintaan produk sangat dipengaruhi oleh kepadatan populasi serta kemudahan distribusi logistik.
-    """)
-
-    st.header("2. Demand Pattern")
-
-    st.write("""
-    Analisis tren penjualan bulanan menunjukkan bahwa permintaan cenderung fluktuatif dari waktu ke waktu. Beberapa periode menunjukkan lonjakan penjualan yang cukup tinggi, namun sering diikuti dengan penurunan tajam pada bulan berikutnya.
-
-    Hal ini terlihat jelas pada analisis Month-over-Month growth, yang menunjukkan adanya spike pertumbuhan yang ekstrem di beberapa bulan. Setelah dilakukan smoothing menggunakan rolling 3-month average, pola permintaan terlihat lebih stabil dan menunjukkan adanya indikasi seasonality dalam penjualan.
-
-    Meskipun terdapat lonjakan penjualan pada bulan tertentu, secara keseluruhan tidak terlihat tren pertumbuhan jangka panjang yang konsisten. Hal ini mengindikasikan bahwa permintaan kemungkinan dipengaruhi oleh event promosi atau momentum belanja tertentu.
-    """)
-
-    st.header("3. Demand Drivers")
-
-    st.write("""
-    Beberapa faktor yang berpotensi mempengaruhi permintaan dapat diidentifikasi dari perilaku transaksi dalam dataset.
-
-    Dari sisi metode pembayaran, COD (Bayar di Tempat) masih menjadi metode pembayaran yang paling dominan baik dari sisi jumlah transaksi maupun kontribusi revenue. Namun metode pembayaran digital seperti Online Payment dan ShopeePay juga memberikan kontribusi pendapatan yang cukup besar.
-
-    Selain itu, metode cicilan seperti SPayLater menunjukkan indikasi menghasilkan nilai transaksi yang relatif lebih tinggi meskipun jumlah penggunaannya lebih sedikit.
-
-    Faktor logistik juga berperan dalam distribusi penjualan antar wilayah. Analisis ongkos kirim menunjukkan bahwa wilayah di luar Pulau Jawa, seperti Papua dan Maluku, memiliki biaya pengiriman yang jauh lebih tinggi dibanding wilayah lainnya. Kondisi ini berpotensi menjadi hambatan bagi aktivitas e-commerce di daerah tersebut.
-
-    Dari sisi waktu transaksi, penjualan cenderung lebih tinggi pada hari kerja dibanding akhir pekan. Hal ini menunjukkan bahwa aktivitas pembelian kemungkinan besar dilakukan selama rutinitas harian, misalnya ketika konsumen membuka marketplace di sela aktivitas kerja.
-    """)
-
-    st.header("4. Operational Factors")
-
-    st.write("""
-    Selain faktor permintaan, beberapa aspek operasional juga dianalisis untuk melihat potensi hambatan dalam proses transaksi.
-
-    Tingkat pengembalian produk (return rate) secara keseluruhan relatif rendah di hampir semua kategori produk, yang menunjukkan bahwa sebagian besar produk diterima dengan baik oleh pembeli. Namun kategori Food Storage & Packaging memiliki return rate yang sedikit lebih tinggi dibanding kategori lainnya sehingga dapat menjadi area yang perlu dievaluasi lebih lanjut.
-
-    Sementara itu, order cancellation rate menunjukkan pola yang relatif konsisten di seluruh kategori produk dengan kisaran sekitar 10–18%. Analisis alasan pembatalan menunjukkan bahwa sebagian besar pembatalan terjadi karena faktor dari sisi pembeli, seperti perubahan keputusan atau modifikasi pesanan, sementara faktor operasional seperti kegagalan pengiriman hanya menyumbang sebagian kecil dari total pembatalan.
-    """)
-
-    st.header("Business Recommendations")
-
-    st.write("""
-    Berdasarkan keseluruhan hasil analisis, terdapat beberapa strategi bisnis yang dapat dipertimbangkan untuk meningkatkan penjualan sekaligus memperbaiki efisiensi operasional.
-    """)
-
-    st.subheader("1. Fokus pada Kategori Produk dengan Permintaan Tinggi")
-
-    st.write("""
-    Kategori Kitchen & Dining serta Home Organization & Living merupakan kontributor utama terhadap volume penjualan dan revenue. Oleh karena itu, kedua kategori ini dapat dijadikan sebagai core product line dalam strategi bisnis.
-
-    Beberapa langkah yang dapat dilakukan antara lain meningkatkan ketersediaan stok pada kategori tersebut, memperluas variasi produk yang masih relevan dengan kebutuhan rumah tangga, serta memanfaatkan kategori ini sebagai produk utama dalam kampanye promosi.
-
-    Dengan memaksimalkan kategori yang sudah memiliki permintaan tinggi, perusahaan dapat meningkatkan penjualan tanpa harus membangun permintaan dari nol.
-    """)
-
-    st.subheader("2. Memanfaatkan Momentum Promosi untuk Mengoptimalkan Lonjakan Penjualan")
-
-    st.write("""
-    Analisis tren bulanan menunjukkan bahwa penjualan sering mengalami lonjakan pada periode tertentu dan kemudian turun kembali pada bulan berikutnya. Pola ini mengindikasikan bahwa penjualan kemungkinan dipengaruhi oleh event-driven demand.
-
-    Strategi yang dapat diterapkan adalah menyelaraskan aktivitas pemasaran dengan momentum tersebut, misalnya dengan memberikan promo tambahan pada periode kampanye besar, meningkatkan eksposur produk saat event belanja berlangsung, serta memastikan ketersediaan stok sebelum periode promosi dimulai.
-    """)
-
-    st.subheader("3. Mendorong Adopsi Metode Pembayaran Digital")
-
-    st.write("""
-    Walaupun COD masih mendominasi transaksi, metode pembayaran digital seperti Online Payment dan ShopeePay sudah menunjukkan kontribusi revenue yang cukup besar.
-
-    Perusahaan dapat mendorong penggunaan metode pembayaran digital melalui program cashback, diskon tambahan, atau promosi eksklusif untuk metode pembayaran tertentu.
-    """)
-
-    st.subheader("4. Mengoptimalkan Strategi Logistik untuk Wilayah di Luar Pulau Jawa")
-
-    st.write("""
-    Analisis ongkos kirim menunjukkan bahwa wilayah di luar Pulau Jawa memiliki biaya logistik yang jauh lebih tinggi dibanding wilayah lain.
-
-    Salah satu strategi yang dapat dipertimbangkan adalah memberikan subsidi ongkir atau promosi khusus untuk wilayah dengan biaya pengiriman tinggi.
-    """)
-
-    st.subheader("5. Mengurangi Return Rate pada Kategori dengan Risiko Lebih Tinggi")
-
-    st.write("""
-    Kategori Food Storage & Packaging menunjukkan return rate yang lebih tinggi dibanding kategori lainnya.
-
-    Perbaikan dapat dilakukan melalui peningkatan deskripsi produk, foto produk yang lebih jelas, serta informasi spesifikasi yang lebih detail.
-    """)
-
-    st.subheader("6. Mengurangi Pembatalan Pesanan Melalui Perbaikan Proses Checkout")
-
-    st.write("""
-    Sebagian besar pembatalan pesanan berasal dari keputusan pembeli, seperti perubahan pesanan atau perubahan alamat pengiriman.
-
-    Perusahaan dapat menerapkan fitur seperti konfirmasi pesanan sebelum checkout selesai, batas waktu perubahan alamat, atau pengingat pembayaran otomatis.
-    """)
+if __name__ == "__main__":
+    run()

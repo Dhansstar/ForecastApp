@@ -1,34 +1,45 @@
 import streamlit as st
-from eda import run_eda
-from prediction import run_prediction
+import base64
+import os
+from streamlit_option_menu import option_menu
+import eda
+import prediction
 
-# Konfigurasi Halaman
-st.set_page_config(
-    page_title="DemandSense AI - Inventory Forecasting",
-    page_icon="📦",
-    layout="wide"
-)
+st.set_page_config(page_title="DemandSense", layout="wide")
 
-# Sidebar Branding
-st.sidebar.image("https://img.icons8.com/fluency/96/artificial-intelligence.png", width=80)
-st.sidebar.title("DemandSense AI")
-st.sidebar.markdown("---")
+# --- UTILS: LOAD CSS & GIF ---
+def set_bg_local(gif_path):
+    if os.path.exists(gif_path):
+        with open(gif_path, "rb") as f:
+            base64_gif = base64.b64encode(f.read()).decode()
+        st.markdown(f'<style>:root {{--bg-image: url("data:image/gif;base64,{base64_gif}");}}</style>', unsafe_allow_html=True)
 
-# Menu Navigasi
-menu = st.sidebar.radio(
-    "Pilih Menu:",
-    ["📊 Dashboard EDA", "🔮 30-Day Forecasting"],
-    index=1
-)
+def local_css(file_name):
+    if os.path.exists(file_name):
+        with open(file_name) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
 
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "**Model Performance:**\n"
-    "Total Volume Accuracy: **95.98%**"
-)
+# Execute Styling
+local_css("style.css")
+set_bg_local("6.gif") # Pastikan file ini ada di folder
 
-# Routing Halaman
-if menu == "📊 Dashboard EDA":
-    run_eda()
-else:
-    run_prediction()
+# --- SIDEBAR NAVIGATION ---
+with st.sidebar:
+    st.markdown('<div id="text-split"><h2>🚀 DEMANDSENSE</h2></div>', unsafe_allow_html=True)
+    selected = option_menu(
+        menu_title=None,
+        options=["EDA", "Prediction"],
+        icons=["bar-chart-fill", "cpu-fill"],
+        default_index=0,
+        styles={
+            "container": {"background-color": "transparent"},
+            "nav-link": {"font-weight": "bold", "color": "white"},
+            "nav-link-selected": {"background-color": "rgba(255,255,255,0.1)"}
+        }
+    )
+
+# --- ROUTING ---
+if selected == "EDA":
+    eda.run()
+elif selected == "Prediction":
+    prediction.run()

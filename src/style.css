@@ -1,58 +1,46 @@
-/* 1. CONTAINER UTAMA & BACKGROUND LOGIC */
-[data-testid="stAppViewContainer"] {
-    background-image: var(--bg-image);
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-}
+/* style.css */
 
-/* Overlay Glassmorphism agar Konten Terbaca */
-[data-testid="stHeader"], [data-testid="stAppViewContainer"] > .main {
-    background: rgba(15, 23, 42, 0.75); 
-    backdrop-filter: blur(8px);
+/* Efek Text Split & Animasi Header */
+#text-split h2 {
     color: #f8fafc;
-}
-
-/* 2. SIDEBAR GLASSMORPHISM */
-[data-testid="stSidebar"] {
-    background: rgba(255, 255, 255, 0.05) !important;
-    backdrop-filter: blur(15px) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
-}
-
-/* 3. CUSTOM TYPOGRAPHY (HEADER SPLIT STYLE) */
-h1, h2, h3, .text-xl, #text-split h2 {
-    font-size: 1.5rem !important;
-    color: currentColor !important;
-    letter-spacing: 0.06em !important;
-    line-height: 1.35 !important;
-    font-weight: 700 !important;
     text-transform: uppercase;
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, #3b82f6, #ec4899);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: slideIn 1.5s ease-out;
 }
 
-/* 4. NAV-LINK PSEUDO-ELEMENT (SQUARE EFFECT) */
-.nav-link {
-    position: relative;
-    overflow: hidden;
-    border-radius: 8px;
+@keyframes slideIn {
+    from { transform: translateX(-50px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
 }
 
-.nav-link:after {
-    position: absolute;
-    opacity: .3;
-    top: 0; left: 0;
-    content: "";
-    display: block;
-    width: 100%; height: 100%;
-    background: currentColor;
-    border-radius: inherit;
-    transform: scale(var(--pseudo-el-after-scale, 0.5));
-    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+/* Glassmorphism Container */
+.stApp {
+    background: transparent;
 }
 
-.nav-link:hover:after {
-    --pseudo-el-after-scale: 1.2;
-    opacity: 0.15;
+[data-testid="stHeader"], [data-testid="stToolbar"] {
+    background: rgba(0,0,0,0);
 }
 
-.nav-link span { position: relative; z-index: 1; }
+/* Transparansi Sidebar */
+[data-testid="stSidebar"] {
+    background-color: rgba(15, 23, 42, 0.8) !important;
+    backdrop-filter: blur(10px);
+    border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Membuat semua card/widget transparan */
+div[data-testid="stVerticalBlock"] > div:has(div.stPlotlyChart) {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 15px;
+    padding: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Styling Judul agar gerak (WAAPI feel) */
+.animate-header {
+    display: inline-block;
+}

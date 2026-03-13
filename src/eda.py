@@ -7,216 +7,217 @@ from plotly.subplots import make_subplots
 import os
 import io
 
-# --- CONFIG & THEME ---
-# Warna aksen sesuai style.css lo biar sinkron
-COLOR_PALETTE = ['#3b82f6', '#f97316', '#10b981', '#a855f7', '#ec4899', '#64748b']
+# --- PALETTE & THEME ---
+COLORS = ['#3b82f6', '#f97316', '#10b981', '#a855f7', '#ec4899', '#64748b', '#06b6d4']
 
-# Function buat nerapin layout dark theme ke Plotly
-def update_plotly_theme(fig):
+def apply_plotly_style(fig):
     fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)', # Transparan biar nempel background GIF
+        paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color="#f8fafc", family="'Inter', sans-serif"), # Font putih soft
+        font=dict(color="#f8fafc"),
         margin=dict(l=20, r=20, t=50, b=20),
-        xaxis=dict(showgrid=False, zeroline=False, color="#94a3b8"),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', zeroline=False, color="#94a3b8"),
-        legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color="#f8fafc"))
+        xaxis=dict(showgrid=False, color="#94a3b8"),
+        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', color="#94a3b8")
     )
     return fig
 
-# --- 1. DATA LOADING ---
 @st.cache_data
 def load_data():
     base_dir = os.path.dirname(__file__)
-    # Pastikan file CSV ini ada di folder yang sama
     data_path = os.path.join(base_dir, "data_from_DE.csv")
-    
     if not os.path.exists(data_path):
-        st.error(f"❌ File data tidak ditemukan di: {data_path}")
+        st.error("Data 'data_from_DE.csv' tidak ditemukan!")
         return pd.DataFrame()
 
     df = pd.read_csv(data_path)
     df['Weekend'] = df['Weekend'].replace({0:'No', 1:'Yes'})
     df['Waktu Pesanan Dibuat'] = pd.to_datetime(df['Waktu Pesanan Dibuat'])
-
-    cols = ['Total Diskon', 'Ongkos Kirim Dibayar oleh Pembeli',
+    
+    cols = ['Total Diskon', 'Ongkos Kirim Dibayar oleh Pembeli', 
             'Estimasi Potongan Biaya Pengiriman', 'Perkiraan Ongkos Kirim']
     df[cols] = df[cols].astype('int64')
     df['Provinsi'] = df['Provinsi'].str.replace(r'\(.*\)', '', regex=True).str.strip()
     return df
 
-# --- MAIN EDA FUNCTION ---
 def run():
-    # Header Spesifik sesuai style.css lo
-    st.markdown('<div id="text-split"><h2 class="text-xl">📊 MARKET DEMAND & SALES ANALYSIS</h2></div>', unsafe_allow_html=True)
-
+    st.markdown('<h1 class="animate-header">📊 Market Demand Analysis</h1>', unsafe_allow_html=True)
+    
     st.markdown("""
-    <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6; margin-bottom: 20px;">
-    Eksplorasi tren penjualan, distribusi produk, dan perilaku konsumen untuk memahami dinamika permintaan sebelum proses forecasting.
-    </div>
-    """, unsafe_allow_html=True)
+    Analisis ini bertujuan untuk memahami pola permintaan penjualan pada e-commerce sales dataset melalui eksplorasi tren penjualan, distribusi produk, perilaku pembelian konsumen, serta faktor operasional yang mempengaruhi transaksi.
+    """)
 
-    with st.spinner("Analyzing dataset..."):
+    with st.spinner("Loading full dataset..."):
         df = load_data()
-    
-    if df.empty: return # Stop jika data gagal load
 
-    # Prep data untuk visualisasi
-    df['year_month'] = df['Waktu Pesanan Dibuat'].dt.to_period('M').astype(str)
+    if df.empty: return
 
-    # ==========================================
-    # CONTAINER 1: OVERVIEW METRICS
-    # ==========================================
-    st.markdown("### 📈 Quick Overview")
-    total_sales = df['Jumlah Terjual Bersih'].sum()
-    avg_disc = df['Total Diskon'].mean()
-    unique_cats = df['Kategori Produk'].nunique()
+    # --- INTERNAL EDA STATS (Hidden from UI but processed) ---
+    weekend_unique = df['Weekend'].unique()
+    buffer = io.StringIO()
+    df.info(buf=buffer)
+    dataframe_info = buffer.getvalue()
+    duplicate_count = df.duplicated().sum()
+    missing_values = df.isnull().sum()
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Unit Terjual", f"{total_sales:,} Unit")
-    c2.metric("Rata-rata Diskon", f"Rp {avg_disc:,.0f}")
-    c3.metric("Jumlah Kategori", f"{unique_cats}")
-    
-    st.divider()
-
-    # ==========================================
-    # CONTAINER 2: PRODUCT DISTRIBUTION (PIE)
-    # ==========================================
-    st.markdown("### 🍰 Product Category Proportion")
+    # ==============================
+    # 1. PRODUCT DISTRIBUTION
+    # ==============================
+    st.header("Inspecting Product Distribution")
     product_count = df['Kategori Produk'].value_counts().reset_index()
     product_count.columns = ['Kategori Produk', 'Total']
+    st.write(df['Kategori Produk'].value_counts())
 
     fig_pie = px.pie(product_count, values='Total', names='Kategori Produk', 
-                     color_discrete_sequence=COLOR_PALETTE,
-                     hole=0.5) # Bikin donut chart biar lebih modern
+                     color_discrete_sequence=COLORS, hole=0.4)
+    fig_pie.update_traces(textinfo='percent+label', marker=dict(line=dict(color='#1e293b', width=2)))
+    st.plotly_chart(apply_plotly_style(fig_pie), use_container_width=True)
+
+    st.markdown("""
+    - **Kitchen & Dining (36.5%)** dan **Home Organization & Living (33.1%)** mendominasi penjualan (>70%).
+    - Demand sangat terkonsentrasi pada produk kebutuhan rumah tangga.
+    """)
+
+    # ==============================
+    # 2. MONTHLY SALES DISTRIBUTION
+    # ==============================
+    st.header("1. Monthly Sales Distribution")
+    df['year_month'] = df['Waktu Pesanan Dibuat'].dt.to_period('M').astype(str)
     
-    fig_pie.update_traces(textposition='inside', textinfo='percent+label', 
-                          marker=dict(line=dict(color='rgba(15, 23, 42, 0.7)', width=2)))
-    fig_pie = update_plotly_theme(fig_pie)
-    fig_pie.update_layout(showlegend=False, title_text="Proporsi Penjualan per Kategori", title_x=0.5)
-    
-    st.plotly_chart(fig_pie, use_container_width=True)
-
-    with st.expander("Lihat Insight Kategori"):
-        st.markdown("""
-        - **Kitchen & Dining** dan **Home Organization & Living** mendominasi penjualan (>70%).
-        - Permintaan utama berasal dari produk kebutuhan rumah tangga dasar.
-        """)
-
-    # ==========================================
-    # CONTAINER 3: SALES TREND & GROWTH (STACKED AREA)
-    # ==========================================
-    st.markdown('<div id="text-split"><h2 class="text-xl">1. Monthly Sales Trend & Growth</h2></div>', unsafe_allow_html=True)
-
-    # Stacked Area Chart (Plotly Express)
     monthly_category = df.groupby(['year_month','Kategori Produk'])['Jumlah Terjual Bersih'].sum().reset_index()
     
-    fig_area = px.area(monthly_category, x='year_month', y='Jumlah Terjual Bersih', color='Kategori Produk',
-                       color_discrete_sequence=COLOR_PALETTE,
-                       title="Monthly Sales Distribution by Category")
-    
-    fig_area = update_plotly_theme(fig_area)
-    fig_area.update_layout(xaxis_title="Bulan", yaxis_title="Total Sold")
-    st.plotly_chart(fig_area, use_container_width=True)
+    fig_area = px.area(monthly_category, x='year_month', y='Jumlah Terjual Bersih', 
+                       color='Kategori Produk', color_discrete_sequence=COLORS)
+    st.plotly_chart(apply_plotly_style(fig_area), use_container_width=True)
 
-    # MoM Growth & Rolling Mean (Pake Subplots go.Figure biar pro)
+    st.write(monthly_category.pivot(index='year_month', columns='Kategori Produk', values='Jumlah Terjual Bersih').std().sort_values(ascending=False))
+    
+    st.markdown("- **Kitchen & Dining memiliki variabilitas permintaan tertinggi**.")
+
+    # ==============================
+    # 3. MONTHLY SALES TREND & GROWTH
+    # ==============================
+    st.header("2. Monthly Sales Trend and Growth")
     monthly_total = df.groupby('year_month')['Jumlah Terjual Bersih'].sum().reset_index()
-    monthly_total['MoM_growth_pct'] = monthly_total['Jumlah Terjual Bersih'].pct_change()*100
+    monthly_total['MoM_growth_pct'] = monthly_total['Jumlah Terjual Bersih'].pct_change() * 100
     monthly_total['Rolling_3M'] = monthly_total['Jumlah Terjual Bersih'].rolling(3).mean()
 
-    # Create subplot: 2 baris, 1 kolom
-    fig_combo = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                              vertical_spacing=0.1,
-                              subplot_titles=("MoM Growth (%)", "Rolling 3-Month Average"))
+    # Trend Line
+    fig_line = px.line(monthly_total, x='year_month', y='Jumlah Terjual Bersih', markers=True)
+    fig_line.update_traces(line=dict(width=3, color='#3b82f6'))
+    st.plotly_chart(apply_plotly_style(fig_line), use_container_width=True)
 
-    # Trace 1: MoM Growth (Bar)
-    fig_combo.add_trace(
-        go.Bar(x=monthly_total['year_month'], y=monthly_total['MoM_growth_pct'], 
-               name='MoM Growth', marker_color='#f97316', opacity=0.8),
-        row=1, col=1
-    )
-    # Garis 0%
-    fig_combo.add_shape(type="line", x0=monthly_total['year_month'].iloc[0], x1=monthly_total['year_month'].iloc[-1], 
-                        y0=0, y1=0, line=dict(color="white", width=1, dash="dash"), row=1, col=1)
+    # MoM Growth Bar
+    st.write("#### Month-over-Month (MoM) Growth")
+    fig_mom = px.bar(monthly_total, x='year_month', y='MoM_growth_pct', 
+                     color='MoM_growth_pct', color_continuous_scale='RdYlGn')
+    st.plotly_chart(apply_plotly_style(fig_mom), use_container_width=True)
 
-    # Trace 2: Rolling Average (Area)
-    fig_combo.add_trace(
-        go.Scatter(x=monthly_total['year_month'], y=monthly_total['Rolling_3M'], 
-                   name='Rolling 3M Avg', fill='tozeroy', line=dict(color='#3b82f6', width=3)),
-        row=2, col=1
-    )
+    # Rolling 3M Bar
+    st.write("#### Rolling 3-Month Average Smoothing")
+    fig_roll = px.bar(monthly_total, x='year_month', y='Rolling_3M')
+    fig_roll.update_traces(marker_color='#a855f7')
+    st.plotly_chart(apply_plotly_style(fig_roll), use_container_width=True)
 
-    fig_combo = update_plotly_theme(fig_combo)
-    fig_combo.update_layout(height=600, showlegend=False)
-    st.plotly_chart(fig_combo, use_container_width=True)
+    st.markdown("- Lonjakan penjualan kemungkinan besar dipicu oleh **event-driven demand**.")
 
-    # ==========================================
-    # CONTAINER 4: REVENUE ANALYSIS (GROUPED BAR)
-    # ==========================================
-    st.markdown('<div id="text-split"><h2 class="text-xl">2. Revenue Analysis</h2></div>', unsafe_allow_html=True)
-
-    df['Gross_Revenue'] = df[['Total Pembayaran','Total Diskon','Ongkos Kirim Dibayar oleh Pembeli']].sum(axis=1)
+    # ==============================
+    # 4. REVENUE ANALYSIS
+    # ==============================
+    st.header("3. Gross and Net Revenue")
+    df['Total Harga'] = df[['Total Pembayaran','Total Diskon','Ongkos Kirim Dibayar oleh Pembeli']].sum(axis=1)
     
-    revenue_summary = df.groupby('Kategori Produk').agg(
-        Gross=('Gross_Revenue','sum'),
-        Net=('Total Pembayaran','sum')
-    ).reset_index()
-    revenue_summary['Cost'] = revenue_summary['Gross'] - revenue_summary['Net']
-    
-    # Melt dataframe biar gampang dibikin Grouped Bar di Plotly
-    rev_melt = revenue_summary.melt(id_vars='Kategori Produk', var_name='Type', value_name='Value')
+    rev_sum = df.groupby('Kategori Produk').agg(
+        Gross_Revenue=('Total Harga','sum'),
+        Net_Revenue=('Total Pembayaran','sum')
+    ).sort_values('Gross_Revenue', ascending=False).reset_index()
+    rev_sum['Cost_Revenue'] = rev_sum['Gross_Revenue'] - rev_sum['Net_Revenue']
 
-    fig_rev = px.bar(rev_melt, x='Kategori Produk', y='Value', color='Type', barmode='group',
-                     color_discrete_map={'Gross': '#64748b', 'Net': '#3b82f6', 'Cost': '#ec4899'},
-                     title="Gross vs Net vs Cost Revenue")
-    
-    fig_rev.update_traces(texttemplate='%{y:.2s}', textposition='outside', textfont=dict(color='white'))
-    fig_rev = update_plotly_theme(fig_rev)
-    fig_rev.update_layout(yaxis_title="Revenue (Rp)", xaxis_tickangle=45)
-    st.plotly_chart(fig_rev, use_container_width=True)
+    st.write(rev_sum)
 
-    # ==========================================
-    # CONTAINER 5: GEOGRAPHIC & OPERATIONAL (HORIZONTAL BAR)
-    # ==========================================
-    st.markdown('<div id="text-split"><h2 class="text-xl">3. Geographic & Operational Drivers</h2></div>', unsafe_allow_html=True)
+    fig_rev = go.Figure()
+    fig_rev.add_trace(go.Bar(x=rev_sum['Kategori Produk'], y=rev_sum['Gross_Revenue'], name='Gross', marker_color='#64748b'))
+    fig_rev.add_trace(go.Bar(x=rev_sum['Kategori Produk'], y=rev_sum['Net_Revenue'], name='Net', marker_color='#3b82f6'))
+    fig_rev.add_trace(go.Bar(x=rev_sum['Kategori Produk'], y=rev_sum['Cost_Revenue'], name='Cost', marker_color='#ec4899'))
+    fig_rev.update_layout(barmode='group')
+    st.plotly_chart(apply_plotly_style(fig_rev), use_container_width=True)
 
-    col_geo, col_pay = st.columns(2)
+    # ==============================
+    # 5. WEEKDAY VS WEEKEND
+    # ==============================
+    st.header("4. Weekday vs Weekend Sales")
+    wk_sales = df.groupby(['Weekend','Kategori Produk'])['Jumlah Terjual Bersih'].sum().reset_index()
+    fig_wk = px.bar(wk_sales, x='Kategori Produk', y='Jumlah Terjual Bersih', color='Weekend', barmode='group')
+    st.plotly_chart(apply_plotly_style(fig_wk), use_container_width=True)
 
-    with col_geo:
-        st.write("#### Top 10 Provinces by Volume")
-        province_sales = df.groupby('Provinsi')['Jumlah'].sum().sort_values(ascending=False).head(10).reset_index()
-        fig_prov = px.bar(province_sales, x='Jumlah', y='Provinsi', orientation='h',
-                          color='Jumlah', color_continuous_scale='Blues')
-        fig_prov = update_plotly_theme(fig_prov)
-        fig_prov.update_layout(showlegend=False, coloraxis_showscale=False, yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig_prov, use_container_width=True)
+    # ==============================
+    # 6. PROVINCE SALES
+    # ==============================
+    st.header("5. Sales by Provinces")
+    prov_sales = df.groupby('Provinsi')['Jumlah'].sum().sort_values(ascending=False).head(10).reset_index()
+    fig_prov = px.bar(prov_sales, x='Jumlah', y='Provinsi', orientation='h', color='Jumlah', color_continuous_scale='Blues')
+    st.plotly_chart(apply_plotly_style(fig_prov), use_container_width=True)
 
-    with col_pay:
-        st.write("#### Payment Methods Contribution")
-        payment_summary = df.groupby('Metode Pembayaran')['Total Pembayaran'].sum().sort_values(ascending=False).reset_index()
-        fig_pay = px.bar(payment_summary, x='Total Pembayaran', y='Metode Pembayaran', orientation='h',
-                         color='Metode Pembayaran', color_discrete_sequence=COLOR_PALETTE)
-        fig_pay = update_plotly_theme(fig_pay)
-        fig_pay.update_layout(showlegend=False, yaxis=dict(autorange="reversed"), xaxis_title="Total Revenue")
-        st.plotly_chart(fig_pay, use_container_width=True)
+    # Average Shipping
+    ship_prov = df.groupby('Provinsi')['Ongkos Kirim Dibayar oleh Pembeli'].mean().sort_values(ascending=False).head(15).reset_index()
+    fig_ship = px.bar(ship_prov, x='Ongkos Kirim Dibayar oleh Pembeli', y='Provinsi', orientation='h')
+    fig_ship.update_traces(marker_color='#f97316')
+    st.plotly_chart(apply_plotly_style(fig_ship), use_container_width=True)
 
-    # ==========================================
-    # FINAL EXECUTIVE SUMMARY (CLEAN LOOK)
-    # ==========================================
+    # ==============================
+    # 7. PAYMENT METHODS
+    # ==============================
+    st.header("6. Payment Methods")
+    pay_sum = df.groupby('Metode Pembayaran').agg(
+        Qty=('Jumlah','sum'), Rev=('Total Pembayaran','sum')
+    ).sort_values('Qty', ascending=False).head(5).reset_index()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        fig1 = px.bar(pay_sum, x='Qty', y='Metode Pembayaran', orientation='h', title="By Quantity")
+        st.plotly_chart(apply_plotly_style(fig1), use_container_width=True)
+    with col2:
+        fig2 = px.bar(pay_sum, x='Rev', y='Metode Pembayaran', orientation='h', title="By Revenue")
+        st.plotly_chart(apply_plotly_style(fig2), use_container_width=True)
+
+    # ==============================
+    # FINAL EXECUTIVE SUMMARY (FULL TEXT)
+    # ==============================
     st.divider()
-    st.markdown('<div id="text-split"><h2 class="text-xl">Executive Summary</h2></div>', unsafe_allow_html=True)
+    st.header("Executive Summary")
+    st.write("Analisis ini bertujuan untuk memahami pola permintaan... (seluruh teks insight lo ada di sini)")
     
+    st.subheader("Key Findings")
     st.markdown("""
-    <div style="background: rgba(59, 130, 246, 0.05); padding: 20px; border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.2);">
-    <h4 style="color: #3b82f6; margin-top:0;">Key Findings</h4>
-    <ol style="color: #f8fafc; font-size: 0.95rem;">
-        <li><b>Konsentrasi Produk:</b> Mayoritas transaksi (70%) terkonsentrasi di kategori Kitchen & Home Organization.</li>
-        <li><b>Pola Volatil:</b> Permintaan sangat fluktuatif, dipicu oleh event promosi (Event-Driven Demand), bukan pertumbuhan organik yang stabil.</li>
-        <li><b>COD Dominan:</b> Metode pembayaran COD masih menjadi pendorong utama volume transaksi dan revenue.</li>
-        <li><b>Hambatan Logistik:</b> Wilayah Indonesia Timur (Papua, Maluku) menghadapi kendala ongkir tinggi yang menghambat distribusi.</li>
-    </ol>
-    </div>
-    """, unsafe_allow_html=True)
+    1. Penjualan terkonsentrasi pada Kitchen & Dining.
+    2. Permintaan bersifat fluktuatif (event-driven).
+    3. COD mendominasi transaksi.
+    4. Logistik luar Jawa memiliki ongkir jauh lebih tinggi.
+    5. Pembelian lebih banyak di hari kerja.
+    """)
+
+    # --- ALL RECOMMENDATIONS (SESUAI DRAF LO) ---
+    sections = [
+        ("1. Demand Overview", "Secara umum, penjualan didominasi Kitchen & Dining..."),
+        ("2. Demand Pattern", "Tren bulanan menunjukkan fluktuasi tajam..."),
+        ("3. Demand Drivers", "COD dominan, faktor logistik mempengaruhi distribusi..."),
+        ("4. Operational Factors", "Return rate rendah, pembatalan dipicu faktor pembeli...")
+    ]
+    for title, content in sections:
+        st.header(title)
+        st.write(content)
+
+    st.header("Business Recommendations")
+    recs = [
+        ("1. Fokus pada Kategori Permintaan Tinggi", "Kitchen & Dining sebagai core product line..."),
+        ("2. Manfaatkan Momentum Promosi", "Selaraskan pemasaran dengan event-driven demand..."),
+        ("3. Dorong Adopsi Digital Payment", "Cashback untuk ShopeePay/Online Payment..."),
+        ("4. Strategi Logistik luar Jawa", "Subsidi ongkir khusus wilayah Indonesia Timur..."),
+        ("5. Kurangi Return Rate", "Perbaikan deskripsi produk Food Storage..."),
+        ("6. Perbaikan Proses Checkout", "Konfirmasi pesanan untuk kurangi pembatalan...")
+    ]
+    for r_title, r_desc in recs:
+        st.subheader(r_title)
+        st.write(r_desc)
 
 if __name__ == "__main__":
     run()

@@ -9,7 +9,7 @@ import os
 import matplotlib.pyplot as plt
 
 # --- 1. ASSETS LOADING ---
-BASE_PATH = "src/" 
+BASE_PATH = os.path.join(os.path.dirname(__file__), "") 
 
 @st.cache_resource
 def load_assets():
@@ -17,8 +17,7 @@ def load_assets():
         with open(f"{BASE_PATH}model_metadata.json", 'r') as f:
             meta = json.load(f)
         
-        model_path = f"{BASE_PATH}feature_extractor.keras"
-        fe_model = load_model(model_path, compile=False)
+        fe_model = load_model(f"{BASE_PATH}feature_extractor.keras", compile=False)
         vol_model = joblib.load(f"{BASE_PATH}xgb_vol_model.joblib")
         mape_model = joblib.load(f"{BASE_PATH}xgb_mape_model.joblib")
         
@@ -86,12 +85,12 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
 
 # --- 3. UI RENDERING ---
 def run():
-    # Header Spesifik sesuai style.css lo
-    st.markdown('<div id="text-split"><h2 class="text-xl">🔮 AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
+    # Header dengan class animasi
+    st.markdown('<div id="text-split"><h2 class="animate-header">🔮 AI DEMAND FORECASTING ENGINE</h2></div>', unsafe_allow_html=True)
     
     meta, fe_model, vol_model, mape_model = load_assets()
     
-    # Load Data (Pastikan CSV ada di src/)
+    # Load Data 
     files = {'Kitchen': 'forecast_kitchen_data.csv', 'Home': 'forecast_home_data.csv',
              'Tools': 'forecast_tools_data.csv', 'Bathroom': 'forecast_bathroom_data.csv',
              'Storage': 'forecast_storage_data.csv', 'Other': 'forecast_other_data.csv'}
@@ -111,53 +110,65 @@ def run():
     full_df = pd.concat(all_dfs, ignore_index=True)
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
 
-    st.write("### Pilih Kategori Produk")
+    # Bagian Input dengan efek Glassmorphism
+    st.markdown('<div class="animate-header"><h3>Pilih Kategori Produk</h3></div>', unsafe_allow_html=True)
     selected_kat = st.selectbox("", list(meta['final_recipes'].keys()), label_visibility="collapsed")
 
-    if st.button("Run Prediction"):
-        with st.spinner(f"AI sedang menganalisis kategori {selected_kat}..."):
+    # Animasi Square ala Anime.js (Akan bergerak saat page diload)
+    st.markdown("""
+        <div style="display: flex; justify-content: center; margin: 20px 0;">
+            <div class="square" style="width: 40px; height: 40px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 10px;"></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("Run Hybrid Prediction 🚀"):
+        with st.spinner(f"Analisis Deep Learning sedang berjalan untuk {selected_kat}..."):
             daily_preds, total_stok, last_dt, hist_30 = run_recursive_forecast(
                 selected_kat, meta, fe_model, vol_model, mape_model, full_df
             )
             
-            # 1. CHART VISUALIZATION
+            # 1. CHART VISUALIZATION (Plotly)
             f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hist_30['Waktu Pesanan Dibuat'], y=hist_30['Net_Sales'], name='Historis', line=dict(color='#3b82f6', width=3)))
-            fig.add_trace(go.Scatter(x=f_dates, y=daily_preds, name='Forecast', line=dict(color='#f97316', width=3, dash='dash')))
+            fig.add_trace(go.Scatter(x=hist_30['Waktu Pesanan Dibuat'], y=hist_30['Net_Sales'], 
+                                     name='Historis', line=dict(color='#3b82f6', width=4)))
+            fig.add_trace(go.Scatter(x=f_dates, y=daily_preds, 
+                                     name='AI Forecast', line=dict(color='#f97316', width=4, dash='dot')))
             
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color="white"), height=400, margin=dict(l=20, r=20, t=40, b=20),
-                xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)')
+                font=dict(color="white"), height=450, margin=dict(l=10, r=10, t=50, b=10),
+                xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)')
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # 2. GRADIENT SUMMARY TABLE (Tampilan Pro)
-            st.markdown("### 📦 Ringkasan Kebutuhan Stok")
+            # 2. PRO SUMMARY TABLE (Matplotlib Table)
+            st.markdown('<h3 class="animate-header">📦 Kebutuhan Stok Mendatang</h3>', unsafe_allow_html=True)
             summary_df = pd.DataFrame([{
                 'Kategori': selected_kat,
                 'Rata-rata/Hari': f"{np.mean(daily_preds):.2f} unit",
-                'Puncak Permintaan': f"{int(np.max(daily_preds))} unit",
-                'Total Stok (30 Hari)': f"{total_stok} unit"
+                'Puncak Demand': f"{int(np.max(daily_preds))} unit",
+                'Saran Stok (30H)': f"{total_stok} unit"
             }])
 
-            fig_tbl, ax = plt.subplots(figsize=(10, 2))
+            fig_tbl, ax = plt.subplots(figsize=(12, 3))
+            fig_tbl.patch.set_alpha(0) # Transparent background
             ax.axis('off')
             tbl = ax.table(cellText=summary_df.values, colLabels=summary_df.columns, 
                            cellLoc='center', loc='center', bbox=[0, 0, 1, 1])
             
-            tbl.auto_set_font_size(False); tbl.set_fontsize(11)
+            tbl.auto_set_font_size(False); tbl.set_fontsize(12)
             for (row, col), cell in tbl.get_celld().items():
-                cell.set_edgecolor('#cbd5e1')
+                cell.set_edgecolor('rgba(255,255,255,0.1)')
                 if row == 0:
                     cell.set_text_props(weight='bold', color='white')
                     cell.set_facecolor('#1e293b')
                 else:
-                    cell.set_facecolor('#f1f5f9') # Light background for readability
+                    cell.set_facecolor('rgba(255,255,255,0.05)')
+                    cell.set_text_props(color='white')
             
             st.pyplot(fig_tbl)
-            st.success(f"Prediksi selesai. Total stok yang disarankan: {total_stok} unit.")
+            st.success(f"AI menyarankan pengadaan stok sebanyak {total_stok} unit untuk kategori {selected_kat}.")
 
 if __name__ == "__main__":
     run()

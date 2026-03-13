@@ -9,6 +9,7 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     animation: slideIn 1.5s ease-out;
+    margin-bottom: 0 !important;
 }
 
 @keyframes slideIn {
@@ -16,75 +17,61 @@
     to { transform: translateX(0); opacity: 1; }
 }
 
-/* Glassmorphism Container */
-.stApp {
-    background: transparent;
-}
+/* Transparansi Global */
+.stApp { background: transparent; }
+[data-testid="stHeader"], [data-testid="stToolbar"] { background: rgba(0,0,0,0); }
 
-[data-testid="stHeader"], [data-testid="stToolbar"] {
-    background: rgba(0,0,0,0);
-}
-
-/* Transparansi Sidebar */
+/* Sidebar Glassmorphism */
 [data-testid="stSidebar"] {
     background-color: rgba(15, 23, 42, 0.8) !important;
     backdrop-filter: blur(10px);
     border-right: 1px solid rgba(255,255,255,0.1);
 }
 
-/* Membuat semua card/widget transparan */
-div[data-testid="stVerticalBlock"] > div:has(div.stPlotlyChart) {
+/* FIX KOTAK HANTU: Hanya kasih border ke chart, bukan ke semua div */
+.stPlotlyChart {
     background: rgba(255, 255, 255, 0.03);
     border-radius: 15px;
     padding: 15px;
     border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 20px;
 }
 
-/* Styling Judul agar gerak (WAAPI feel) */
-.animate-header {
-    display: inline-block;
+/* Ngilangin semua div kosong/hantu yang bikin kotak gelap */
+div[data-testid="stVerticalBlock"] > div:empty,
+div[data-testid="stVerticalBlock"] > div:has(div:empty) {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 /* Styling Container Input */
-.input-container {
-    margin-top: 2rem;
-    padding: 20px;
-    background: rgba(255, 255, 255, 0.02);
+.input-wrapper {
+    padding: 24px;
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 15px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 10px;
 }
 
-/* Custom Selectbox (Streamlit Overrides) */
+/* Custom Selectbox */
 div[data-baseweb="select"] {
-    background-color: rgba(15, 23, 42, 0.5) !important;
-    border: 1px solid rgba(59, 130, 246, 0.2) !important;
+    background-color: rgba(15, 23, 42, 0.7) !important;
+    border: 1px solid rgba(59, 130, 246, 0.3) !important;
     border-radius: 10px !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-div[data-baseweb="select"]:hover {
-    border-color: #3b82f6 !important;
-    box-shadow: 0 0 15px rgba(59, 130, 246, 0.2) !important;
-    transform: translateY(-2px);
-}
-
-/* Custom Button (Run Prediction) */
+/* Custom Button */
 button[kind="primary"] {
     background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%) !important;
     border: none !important;
     padding: 12px 0 !important;
     font-weight: 600 !important;
-    letter-spacing: 0.5px !important;
     transition: all 0.4s ease !important;
-    margin-top: 15px !important;
 }
 
 button[kind="primary"]:hover {
-    transform: scale(1.02) !important;
-    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.4) !important;
-    filter: brightness(1.1);
-}
-
-button[kind="primary"]:active {
-    transform: scale(0.98) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 15px rgba(59, 130, 246, 0.3) !important;
 }

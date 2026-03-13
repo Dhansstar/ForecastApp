@@ -7,7 +7,6 @@ import joblib
 import json
 import os
 import time
-import matplotlib.pyplot as plt
 
 # --- 1. ASSETS LOADING ---
 BASE_PATH = os.path.dirname(__file__)
@@ -25,12 +24,12 @@ def load_assets():
         st.error(f"Gagal Load Assets: {e}")
         st.stop()
 
-# --- 2. ENGINE RECURSIVE ---
+# --- 2. ENGINE RECURSIVE (Tetap Sama) ---
 def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
+    # (Kode logika prediksi lo tetap di sini, nggak gue ubah biar akurasinya aman)
     recipe = meta['final_recipes'][kat]
     time_steps = meta['time_steps']
-    expected_f = fe_model.input_shape[-1] 
-    
+    expected_f = fe_model.input_shape[-1]
     hist = full_df[full_df['Kategori'] == kat].sort_values('Waktu Pesanan Dibuat').copy()
     hist['day_sin'] = np.sin(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
     hist['day_cos'] = np.cos(2 * np.pi * hist['Waktu Pesanan Dibuat'].dt.day / 31)
@@ -38,22 +37,18 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
     hist['lag_7'] = hist['Net_Sales'].shift(7)
     hist['lag_28'] = hist['Net_Sales'].shift(28)
     hist['rolling_mean_7'] = hist['Net_Sales'].rolling(window=7).mean()
-    
     all_req_cols = meta['features'] + meta['kat_cols']
     for col in all_req_cols:
         if col not in hist.columns:
             hist[col] = (1 if kat.lower() in col.lower() else 0) if "Kategori" in col else 0
-    
     hist = hist.fillna(0)
     if len(hist) < time_steps:
         pad = pd.DataFrame(0, index=range(time_steps - len(hist)), columns=hist.columns)
         hist = pd.concat([pad, hist], ignore_index=True)
-    
     hist_input = hist.tail(time_steps)
     curr_win = [row[:expected_f] for row in hist_input[all_req_cols].values.tolist()]
     last_date = pd.to_datetime(hist_input['Waktu Pesanan Dibuat'].iloc[-1])
     kat_onehot_vals = [1 if kat.lower() in c.lower() else 0 for c in meta['kat_cols']]
-
     preds = []
     for i in range(1, 31):
         X_in = np.array([curr_win[-time_steps:]], dtype='float32')
@@ -65,48 +60,24 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
         if not recipe['smooth']:
             val = np.ceil(val) if kat in ['Kitchen', 'Home'] else np.round(val)
         preds.append(val)
-        
         nxt_d = last_date + pd.Timedelta(days=i)
         new_row = [np.sin(2*nxt_d.day*np.pi/31), np.cos(2*nxt_d.day*np.pi/31), np.log1p(val),
                    curr_win[-7][2] if len(curr_win)>=7 else 0,
                    curr_win[-28][2] if len(curr_win)>=28 else 0,
                    np.mean([r[2] for r in curr_win[-7:]])]
         curr_win.append((new_row + kat_onehot_vals)[:expected_f])
-        
     return preds, int(np.ceil(np.sum(preds) * recipe['mult'])), last_date, hist.tail(30)
 
 # --- 3. UI RENDERING ---
 def run():
-    # CSS RESET - Ngilangin gap & kotak hantu tanpa ngilangin widget
-    st.markdown("""
-    <style>
-    /* Ngilangin margin bawah di setiap baris streamlit */
-    .element-container { margin-bottom: 0px !important; }
-    
-    /* Wrapper transparan biar glassmorphism lo tetep dapet */
-    .custom-card {
-        padding: 20px;
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        margin: 10px 0;
-    }
+    # Load CSS External
+    if os.path.exists("style.css"):
+        with open("style.css") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-    /* Styling Selectbox supaya kontras */
-    div[data-baseweb="select"] {
-        background-color: rgba(15, 23, 42, 0.9) !important;
-        border: 1px solid rgba(59, 130, 246, 0.5) !important;
-        border-radius: 10px !important;
-        color: white !important;
-    }
-
-    /* Ngilangin label default Streamlit biar nggak bikin spasi */
-    label[data-testid="stWidgetLabel"] { display: none !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown('<div id="text-split"><h2 class="animate-header">AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
-    st.markdown('<div class="glass-card animate-card">Prediksi stok 30 hari ke depan menggunakan <strong>Hybrid LSTM-XGBoost</strong>.</div>', unsafe_allow_html=True)
+    # UI Header
+    st.markdown('<div id="text-split"><h2 class="animate-header">🔮 AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="glass-card">Prediksi stok 30 hari ke depan menggunakan <strong>Hybrid LSTM-XGBoost</strong>.</div>', unsafe_allow_html=True)
 
     meta, fe_model, vol_model, mape_model = load_assets()
     
@@ -131,46 +102,33 @@ def run():
     full_df = pd.concat(all_dfs, ignore_index=True)
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
 
-    # --- BAGIAN INPUT ---
-    # Pakai container biar rapi
-    with st.container():
-        st.markdown('<div class="custom-card animate-card">', unsafe_allow_html=True)
-        st.markdown('<p style="color: #94a3b8; font-weight: 600; margin-bottom: 10px;">Pilih Kategori Produk</p>', unsafe_allow_html=True)
-        
-        # Ini Pilihan Kategorinya, jangan sampe ilang lagi
-        selected_kat = st.selectbox(
-            "Pilih Kategori", 
-            options=list(meta['final_recipes'].keys()),
-            key="category_selector"
-        )
+    # --- BAGIAN INPUT (DIBUNGKUS TOTAL) ---
+    st.markdown('<div class="input-wrapper">', unsafe_allow_html=True)
+    st.markdown('<p style="color: #94a3b8; font-weight: 600; margin-bottom: 5px;">Pilih Kategori Produk</p>', unsafe_allow_html=True)
+    
+    selected_kat = st.selectbox("pilih", list(meta['final_recipes'].keys()), label_visibility="collapsed")
 
-        st.markdown('<div style="display: flex; justify-content: center; margin: 15px 0;"><div class="square" style="width: 30px; height: 30px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 8px;"></div></div>', unsafe_allow_html=True)
+    st.markdown('<div style="display: flex; justify-content: center; margin: 15px 0;"><div style="width: 32px; height: 32px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 8px;"></div></div>', unsafe_allow_html=True)
 
-        run_btn = st.button("Run Hybrid Prediction", use_container_width=True, type="primary")
-        st.markdown('</div>', unsafe_allow_html=True)
+    run_btn = st.button("Run Hybrid Prediction 🚀", use_container_width=True, type="primary")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if run_btn:
-        with st.status(f"AI menganalisis {selected_kat}...", expanded=True) as status:
+        with st.status(f"Menganalisis {selected_kat}...", expanded=False):
             daily_preds, total_stok, last_dt, hist_30 = run_recursive_forecast(
                 selected_kat, meta, fe_model, vol_model, mape_model, full_df
             )
-            time.sleep(0.5)
-            status.update(label="Analisis Selesai!", state="complete", expanded=False)
-            
-            # Visualisasi Plotly
-            f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hist_30['Waktu Pesanan Dibuat'], y=hist_30['Net_Sales'], name='Historis', line=dict(color='#3b82f6', width=3)))
-            fig.add_trace(go.Scatter(x=f_dates, y=daily_preds, name='Forecast', line=dict(color='#f97316', width=3, dash='dash')))
-            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), height=400,
-                              xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'))
-            st.plotly_chart(fig, use_container_width=True)
+        
+        # Plotly Chart (Otomatis dapat style dari CSS kita)
+        f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=hist_30['Waktu Pesanan Dibuat'], y=hist_30['Net_Sales'], name='Historis', line=dict(color='#3b82f6', width=3)))
+        fig.add_trace(go.Scatter(x=f_dates, y=daily_preds, name='Forecast', line=dict(color='#f97316', width=3, dash='dash')))
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), height=400,
+                          xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)'))
+        st.plotly_chart(fig, use_container_width=True)
 
-            # Hasil Akhir
-            st.success(f"Total kebutuhan stok {selected_kat} 30 hari ke depan: **{total_stok} unit**.")
-
-    # Script Anime.js
-    st.markdown("<script>anime({targets: '.animate-card, .square', translateY: [10, 0], opacity: [0, 1], delay: anime.stagger(100), easing: 'easeOutExpo', duration: 800});</script>", unsafe_allow_html=True)
+        st.success(f"Total kebutuhan stok {selected_kat} 30 hari ke depan: **{total_stok} unit**.")
 
 if __name__ == "__main__":
     run()

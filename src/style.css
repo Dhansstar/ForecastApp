@@ -1,6 +1,10 @@
 /* style.css */
 
-/* Efek Text Split & Animasi Header */
+/* Reset Global & Background */
+.stApp { background: transparent !important; }
+[data-testid="stHeader"], [data-testid="stToolbar"] { background: rgba(0,0,0,0) !important; }
+
+/* Animasi Judul */
 #text-split h2 {
     color: #f8fafc;
     text-transform: uppercase;
@@ -8,70 +12,39 @@
     background: linear-gradient(90deg, #3b82f6, #ec4899);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: slideIn 1.5s ease-out;
     margin-bottom: 0 !important;
 }
 
-@keyframes slideIn {
-    from { transform: translateX(-50px); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-}
-
-/* Transparansi Global */
-.stApp { background: transparent; }
-[data-testid="stHeader"], [data-testid="stToolbar"] { background: rgba(0,0,0,0); }
-
-/* Sidebar Glassmorphism */
-[data-testid="stSidebar"] {
-    background-color: rgba(15, 23, 42, 0.8) !important;
-    backdrop-filter: blur(10px);
-    border-right: 1px solid rgba(255,255,255,0.1);
-}
-
-/* FIX KOTAK HANTU: Hanya kasih border ke chart, bukan ke semua div */
-.stPlotlyChart {
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 15px;
-    padding: 15px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    margin-top: 20px;
-}
-
-/* Ngilangin semua div kosong/hantu yang bikin kotak gelap */
-div[data-testid="stVerticalBlock"] > div:empty,
-div[data-testid="stVerticalBlock"] > div:has(div:empty) {
-    display: none !important;
-    height: 0 !important;
-    margin: 0 !important;
+/* PEMBASMI KOTAK HANTU (VERSI FINAL) */
+/* Kita targetkan HANYA div yang isinya bener-bener kosong atau cuma label hantu */
+div[data-testid="stVerticalBlock"] > div {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
     padding: 0 !important;
+    margin: 0 !important;
 }
 
-/* Styling Container Input */
-.input-wrapper {
-    padding: 24px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 15px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    margin-top: 10px;
+/* HANYA kasih border/background ke Chart & Input Wrapper kita sendiri */
+.stPlotlyChart, .input-wrapper {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border-radius: 15px !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    padding: 20px !important;
+    margin: 15px 0 !important;
 }
 
-/* Custom Selectbox */
+/* Custom Selectbox styling */
 div[data-baseweb="select"] {
-    background-color: rgba(15, 23, 42, 0.7) !important;
+    background-color: rgba(15, 23, 42, 0.8) !important;
     border: 1px solid rgba(59, 130, 246, 0.3) !important;
     border-radius: 10px !important;
 }
 
-/* Custom Button */
+/* Primary Button Styling */
 button[kind="primary"] {
     background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%) !important;
     border: none !important;
     padding: 12px 0 !important;
     font-weight: 600 !important;
-    transition: all 0.4s ease !important;
-}
-
-button[kind="primary"]:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 8px 15px rgba(59, 130, 246, 0.3) !important;
 }

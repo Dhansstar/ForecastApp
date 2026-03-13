@@ -1,9 +1,23 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
-from src import eda, prediction
+import sys
 import os
 
-# 1. KONFIGURASI HALAMAN (Wajib paling atas, jangan ada di eda.py/prediction.py)
+# --- FIX PATH (Biar Python gak dongo nyari folder src) ---
+# Kita tambahin directory utama ke sys.path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir) # Naik satu level ke root
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+# Sekarang baru import modulnya
+try:
+    from src import eda, prediction
+except ImportError:
+    # Backup plan kalau struktur folder lo beda
+    import eda, prediction 
+
+# 1. KONFIGURASI HALAMAN
 st.set_page_config(
     page_title="DemandSense AI", 
     layout="wide", 
@@ -12,11 +26,13 @@ st.set_page_config(
 
 # 2. INJECT CSS GLOBAL
 def local_css(file_name):
-    if os.path.exists(file_name):
-        with open(file_name) as f:
-            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-    else:
-        st.warning(f"File {file_name} tidak ditemukan.")
+    # Nyari file style.css di root atau di folder yang sama
+    paths = [file_name, os.path.join(current_dir, file_name)]
+    for p in paths:
+        if os.path.exists(p):
+            with open(p) as f:
+                st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+            return
 
 local_css("style.css")
 
@@ -44,8 +60,7 @@ with st.sidebar:
         }
     )
 
-# 4. ROUTING LOGIC DENGAN ISOLASI CONTAINER
-# Kita pakai st.empty() untuk mastiin setiap pindah menu, layar di-clear dulu
+# 4. ROUTING LOGIC
 main_view = st.container()
 
 with main_view:
@@ -58,13 +73,11 @@ with main_view:
         
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 5. ULTRA-PERSISTENT ANIMATION SCRIPT (Anime.js + MutationObserver)
-# Script ini bakal tetep jalan & nge-scan elemen baru pas lo ganti menu
+# 5. GLOBAL ANIMATION SCRIPT (Anime.js)
 st.markdown("""
 <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
 <script>
     function triggerAnimations() {
-        // Animasi Header Meluncur
         anime({
             targets: '.animate-header',
             translateY: [-30, 0],
@@ -74,12 +87,11 @@ st.markdown("""
             duration: 1000
         });
 
-        // Animasi Square Neon
         anime({
             targets: '.square',
             rotate: '1turn',
             scale: [0.8, 1.2],
-            backgroundColor: ['#3b82f6', '#ec4899', '#10b981'],
+            backgroundColor: ['#3b82f6', '#ec4899'],
             duration: 3000,
             loop: true,
             direction: 'alternate',
@@ -87,18 +99,11 @@ st.markdown("""
         });
     }
 
-    // Monitor perubahan DOM supaya pas Streamlit ganti menu, animasi tetep kena
     const observer = new MutationObserver((mutations) => {
-        let shouldAnimate = false;
-        mutations.forEach(m => {
-            if (m.addedNodes.length > 0) shouldAnimate = true;
-        });
-        if (shouldAnimate) triggerAnimations();
+        if (mutations.some(m => m.addedNodes.length > 0)) triggerAnimations();
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
-    
-    // Jalankan pertama kali
-    document.addEventListener('DOMContentLoaded', triggerAnimations);
+    window.onload = triggerAnimations;
 </script>
 """, unsafe_allow_html=True)

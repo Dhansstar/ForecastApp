@@ -1,137 +1,104 @@
 import streamlit as st
-import base64
-import os
 from streamlit_option_menu import option_menu
-import eda
-import prediction
+from src import eda, prediction
+import os
 
-# 1. SET CONFIG
-st.set_page_config(page_title="DemandSense", layout="wide", initial_sidebar_state="expanded")
+# 1. KONFIGURASI HALAMAN (Wajib paling atas, jangan ada di eda.py/prediction.py)
+st.set_page_config(
+    page_title="DemandSense AI", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
 
-# --- UTILS: LOAD ASSETS ---
-def apply_custom_assets():
-    base_dir = os.path.dirname(__file__)
-    gif_path = os.path.join(base_dir, "6.gif")
-    
-    # Background GIF Loader (Fix Path & Encoding)
-    if os.path.exists(gif_path):
-        with open(gif_path, "rb") as f:
-            base64_gif = base64.b64encode(f.read()).decode()
-        
-        st.markdown(
-            f'''
-            <style>
-            .stApp {{
-                background: url("data:image/gif;base64,{base64_gif}");
-                background-size: cover;
-                background-position: center;
-                background-attachment: fixed;
-            }}
-            /* Mencegah tabrakan icon & text di header */
-            .animate-header {{
-                display: flex !important;
-                align-items: center !important;
-                gap: 15px !important;
-                background: transparent !important;
-            }}
-            #text-split h2 {{
-                margin: 0;
-                padding: 10px 0;
-            }}
-            </style>
-            ''', 
-            unsafe_allow_html=True
-        )
+# 2. INJECT CSS GLOBAL
+def local_css(file_name):
+    if os.path.exists(file_name):
+        with open(file_name) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    else:
+        st.warning(f"File {file_name} tidak ditemukan.")
 
-    # 2. Inject Anime.js Logic (Staggered Dropdown & Mutation Observer)
-    st.components.v1.html(
-        """
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
-        <script>
-            const doc = window.parent.document;
-            
-            const runAnimations = () => {
-                // --- 1. Animasi Dropdown Menu Sidebar (Satu-satu muncul) ---
-                window.parent.anime({
-                    targets: doc.querySelectorAll('.nav-link'),
-                    translateY: [-30, 0],
-                    opacity: [0, 1],
-                    delay: window.parent.anime.stagger(100),
-                    easing: 'easeOutElastic(1, .6)',
-                    duration: 800
-                });
+local_css("style.css")
 
-                // --- 2. Animasi Judul & Header Page ---
-                window.parent.anime({
-                    targets: [
-                        doc.querySelectorAll('.animate-header'), 
-                        doc.querySelectorAll('#text-split h2')
-                    ],
-                    translateY: [-50, 0],
-                    opacity: [0, 1],
-                    scale: [0.9, 1],
-                    duration: 1000,
-                    easing: 'easeOutExpo',
-                    delay: 200
-                });
-
-                // --- 3. Animasi Square WAAPI ---
-                window.parent.anime({
-                    targets: doc.querySelectorAll('.square'),
-                    translateX: '10rem',
-                    scale: 1.2,
-                    rotate: '1turn',
-                    duration: 2000,
-                    direction: 'alternate',
-                    loop: true,
-                    easing: 'easeInOutSine'
-                });
-            };
-
-            // Observer: Trigger tiap kali ganti menu (Mutation)
-            const observer = new MutationObserver(() => {
-                setTimeout(runAnimations, 300);
-            });
-            observer.observe(doc.body, { childList: true, subtree: true });
-            
-            setTimeout(runAnimations, 500);
-        </script>
-        """,
-        height=0,
-    )
-
-apply_custom_assets()
-
-# --- SIDEBAR ---
+# 3. SIDEBAR NAVIGATION
 with st.sidebar:
-    # Sidebar Header dengan ID agar tertangkap script animasi
-    st.markdown('<div id="text-split"><h2 class="animate-header">🚀 DEMANDSENSE</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div id="text-split"><h1 class="animate-header" style="text-align:center;">🚀 DemandSense</h1></div>', unsafe_allow_html=True)
     
     selected = option_menu(
         menu_title=None,
-        options=["EDA", "Prediction"],
+        options=["EDA Analysis", "Demand Prediction"],
         icons=["bar-chart-line-fill", "cpu-fill"],
+        menu_icon="cast",
         default_index=0,
         styles={
-            "container": {"background-color": "transparent", "padding": "5px"},
+            "container": {"padding": "5!important", "background-color": "rgba(255, 255, 255, 0.05)", "border-radius": "10px"},
+            "icon": {"color": "#3b82f6", "font-size": "18px"}, 
             "nav-link": {
-                "font-size": "16px", "text-align": "left", "margin": "10px 0px",
-                "color": "white", "border-radius": "10px", 
-                "background": "rgba(255, 255, 255, 0.05)",
-                "transition": "all 0.3s"
+                "font-size": "14px", 
+                "text-align": "left", 
+                "margin":"5px", 
+                "color": "#f8fafc",
+                "--hover-color": "rgba(59, 130, 246, 0.2)"
             },
-            "nav-link-selected": {
-                "background-color": "#3b82f6",
-                "box-shadow": "0px 10px 20px rgba(59, 130, 246, 0.4)",
-                "font-weight": "bold"
-            }
+            "nav-link-selected": {"background-color": "#3b82f6", "font-weight": "600"},
         }
     )
 
-# --- ROUTING DENGAN WRAPPER ---
-st.markdown('<div class="main-content">', unsafe_allow_html=True)
-if selected == "EDA":
-    eda.run()
-elif selected == "Prediction":
-    prediction.run()
-st.markdown('</div>', unsafe_allow_html=True)
+# 4. ROUTING LOGIC DENGAN ISOLASI CONTAINER
+# Kita pakai st.empty() untuk mastiin setiap pindah menu, layar di-clear dulu
+main_view = st.container()
+
+with main_view:
+    st.markdown('<div class="main-container">', unsafe_allow_html=True)
+    
+    if selected == "EDA Analysis":
+        eda.run()
+    elif selected == "Demand Prediction":
+        prediction.run()
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# 5. ULTRA-PERSISTENT ANIMATION SCRIPT (Anime.js + MutationObserver)
+# Script ini bakal tetep jalan & nge-scan elemen baru pas lo ganti menu
+st.markdown("""
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+<script>
+    function triggerAnimations() {
+        // Animasi Header Meluncur
+        anime({
+            targets: '.animate-header',
+            translateY: [-30, 0],
+            opacity: [0, 1],
+            delay: anime.stagger(150),
+            easing: 'easeOutExpo',
+            duration: 1000
+        });
+
+        // Animasi Square Neon
+        anime({
+            targets: '.square',
+            rotate: '1turn',
+            scale: [0.8, 1.2],
+            backgroundColor: ['#3b82f6', '#ec4899', '#10b981'],
+            duration: 3000,
+            loop: true,
+            direction: 'alternate',
+            easing: 'easeInOutSine'
+        });
+    }
+
+    // Monitor perubahan DOM supaya pas Streamlit ganti menu, animasi tetep kena
+    const observer = new MutationObserver((mutations) => {
+        let shouldAnimate = false;
+        mutations.forEach(m => {
+            if (m.addedNodes.length > 0) shouldAnimate = true;
+        });
+        if (shouldAnimate) triggerAnimations();
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    // Jalankan pertama kali
+    document.addEventListener('DOMContentLoaded', triggerAnimations);
+</script>
+""", unsafe_allow_html=True)

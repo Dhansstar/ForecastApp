@@ -77,41 +77,42 @@ def run_recursive_forecast(kat, meta, fe_model, vol_model, mape_model, full_df):
 
 # --- 3. UI RENDERING ---
 def run():
-    # CSS Hard Reset buat ngilangin kotak kosong
+    # CSS CLEANER (Solusi Utama)
     st.markdown("""
     <style>
-    /* Sembunyikan div kosong yang sering dirender Streamlit di antara markdown */
+    /* Hilangkan div kosong yang dirender markdown di tengah layout */
     div[data-testid="stVerticalBlock"] > div:has(div:empty) {
         display: none !important;
-        margin: 0 !important;
-        padding: 0 !important;
     }
+
+    /* Hilangkan padding berlebih antar elemen */
+    .element-container { margin-bottom: 0px !important; }
     
     .input-wrapper {
         padding: 24px;
         background: rgba(255, 255, 255, 0.03);
         border-radius: 15px;
         border: 1px solid rgba(255, 255, 255, 0.05);
-        margin-top: -10px; /* Tarik ke atas biar gak ada gap */
+        margin-top: 5px;
     }
 
-    /* Hilangkan spasi label selectbox */
     div[data-testid="stWidgetLabel"] { display: none !important; }
     
     div[data-baseweb="select"] {
-        background-color: rgba(15, 23, 42, 0.7) !important;
-        border: 1px solid rgba(59, 130, 246, 0.4) !important;
+        background-color: rgba(15, 23, 42, 0.8) !important;
+        border: 1px solid rgba(59, 130, 246, 0.5) !important;
         border-radius: 10px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div id="text-split"><h2 class="animate-header">AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
+    # HEADER & DESCRIPTION
+    st.markdown('<div id="text-split"><h2 class="animate-header">🔮 AI DEMAND FORECASTING</h2></div>', unsafe_allow_html=True)
     st.markdown('<div class="glass-card animate-card">Prediksi stok 30 hari ke depan menggunakan <strong>Hybrid LSTM-XGBoost</strong>.</div>', unsafe_allow_html=True)
 
     meta, fe_model, vol_model, mape_model = load_assets()
     
-    # Data Loading
+    # Load Data CSV
     categories_files = {'Kitchen': 'forecast_kitchen_data.csv', 'Home': 'forecast_home_data.csv', 
                         'Tools': 'forecast_tools_data.csv', 'Bathroom': 'forecast_bathroom_data.csv',
                         'Storage': 'forecast_storage_data.csv', 'Other': 'forecast_other_data.csv'}
@@ -132,28 +133,31 @@ def run():
     full_df = pd.concat(all_dfs, ignore_index=True)
     full_df['Waktu Pesanan Dibuat'] = pd.to_datetime(full_df['Waktu Pesanan Dibuat'])
 
-    # --- BAGIAN INPUT (DIBUNGKUS BIAR BERSIH) ---
-    with st.container():
-        st.markdown('<div class="input-wrapper animate-card">', unsafe_allow_html=True)
-        
-        # Judul di dalam wrapper agar nempel
-        st.markdown('<p style="color: #94a3b8; font-weight: 600; margin-bottom: 5px;">Pilih Kategori Produk</p>', unsafe_allow_html=True)
-        
-        selected_kat = st.selectbox("kat_select", list(meta['final_recipes'].keys()), label_visibility="collapsed")
+    # --- WRAPPER INPUT (DIBUNGKUS TOTAL) ---
+    # Kita tidak pakai penutup tag </div> di markdown terpisah biar nggak ada gap.
+    container_html = f"""
+    <div class="input-wrapper animate-card">
+        <p style="color: #94a3b8; font-weight: 600; margin-bottom: 5px;">Pilih Kategori Produk</p>
+    """
+    st.markdown(container_html, unsafe_allow_html=True)
+    
+    selected_kat = st.selectbox("pilih_kategori", list(meta['final_recipes'].keys()), label_visibility="collapsed")
 
-        # Animasi Square
-        st.markdown('<div style="display: flex; justify-content: center; margin: 20px 0;"><div class="square" style="width: 32px; height: 32px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 8px;"></div></div>', unsafe_allow_html=True)
+    st.markdown('<div style="display: flex; justify-content: center; margin: 20px 0;"><div class="square" style="width: 32px; height: 32px; background: linear-gradient(45deg, #3b82f6, #ec4899); border-radius: 8px;"></div></div>', unsafe_allow_html=True)
 
-        run_btn = st.button("Run Hybrid Prediction", use_container_width=True, type="primary")
-        st.markdown('</div>', unsafe_allow_html=True)
+    run_btn = st.button("Run Hybrid Prediction 🚀", use_container_width=True, type="primary")
+    
+    # Tutup wrapper-nya di sini
+    st.markdown('</div>', unsafe_allow_html=True)
 
+    # --- LOGIC ---
     if run_btn:
-        with st.status(f"AI sedang menganalisis kategori {selected_kat}...", expanded=True) as status:
+        with st.status(f"AI menganalisis {selected_kat}...", expanded=True) as status:
             daily_preds, total_stok, last_dt, hist_30 = run_recursive_forecast(
                 selected_kat, meta, fe_model, vol_model, mape_model, full_df
             )
             time.sleep(1)
-            status.update(label="Prediction Complete!", state="complete", expanded=False)
+            status.update(label="Complete!", state="complete", expanded=False)
             
             # Plotly
             f_dates = pd.date_range(start=last_dt + pd.Timedelta(days=1), periods=30)
@@ -165,7 +169,6 @@ def run():
             st.plotly_chart(fig, use_container_width=True)
 
             # Table
-            st.markdown('<h3 style="text-align:center;">📦 Ringkasan Kebutuhan Stok</h3>', unsafe_allow_html=True)
             summary_df = pd.DataFrame([{'Kategori': selected_kat, 'Total Stok (30H)': f"{total_stok} unit"}])
             fig_tbl, ax = plt.subplots(figsize=(10, 2))
             fig_tbl.patch.set_alpha(0)
@@ -178,7 +181,6 @@ def run():
                 else:
                     cell.set_facecolor((1, 1, 1, 0.05)); cell.set_text_props(color='white')
             st.pyplot(fig_tbl)
-            st.success(f"Prediksi selesai. Stok aman: {total_stok} unit.")
 
     # Script Animasi
     st.markdown("<script>anime({targets: '.animate-card, .square', translateY: [15, 0], opacity: [0, 1], delay: anime.stagger(100), easing: 'easeOutExpo', duration: 800});</script>", unsafe_allow_html=True)

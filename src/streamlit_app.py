@@ -9,15 +9,15 @@ import prediction
 st.set_page_config(page_title="DemandSense", layout="wide", initial_sidebar_state="expanded")
 
 # --- UTILS: LOAD ASSETS ---
-def get_base64_bin(file_path):
-    with open(file_path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
 def apply_custom_assets():
-    # Background GIF
-    gif_path = os.path.join(os.path.dirname(__file__), "6.gif")
+    base_dir = os.path.dirname(__file__)
+    gif_path = os.path.join(base_dir, "6.gif")
+    
+    # Background GIF Loader
     if os.path.exists(gif_path):
-        base64_gif = get_base64_bin(gif_path)
+        with open(gif_path, "rb") as f:
+            base64_gif = base64.b64encode(f.read()).decode()
+        
         st.markdown(
             f'''
             <style>
@@ -27,28 +27,19 @@ def apply_custom_assets():
                 background-position: center;
                 background-attachment: fixed;
             }}
-            /* Efek Dropdown & Hover untuk Navigasi */
-            .nav-link {{
-                border-radius: 10px !important;
-                margin: 5px 0px !important;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            }}
-            .nav-link:hover {{
-                transform: translateX(10px) scale(1.05) !important;
-                background-color: rgba(59, 130, 246, 0.1) !important;
+            /* Mencegah tabrakan icon & text di header */
+            .animate-header {{
+                display: flex;
+                align-items: center;
+                gap: 15px;
+                background: transparent !important;
             }}
             </style>
             ''', 
             unsafe_allow_html=True
         )
 
-    # 2. External CSS
-    css_path = os.path.join(os.path.dirname(__file__), "style.css")
-    if os.path.exists(css_path):
-        with open(css_path) as f:
-            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-
-    # 3. Inject Anime.js Logic (FULL WAAPI ANIMATION)
+    # Inject Anime.js & Dropdown Animation Logic
     st.components.v1.html(
         """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
@@ -56,47 +47,30 @@ def apply_custom_assets():
             const doc = window.parent.document;
             
             const runAnimations = () => {
-                // --- 1. Animasi Header (Fade In) ---
-                doc.querySelectorAll('.animate-header').forEach(el => {
-                    window.parent.anime({
-                        targets: el,
-                        translateY: [-20, 0],
-                        opacity: [0, 1],
-                        easing: 'easeOutExpo',
-                        duration: 1200
-                    });
+                // 1. Animasi Dropdown untuk Menu Sidebar
+                window.parent.anime({
+                    targets: doc.querySelectorAll('.nav-link'),
+                    translateY: [-50, 0],
+                    opacity: [0, 1],
+                    delay: window.parent.anime.stagger(100),
+                    easing: 'easeOutElastic(1, .6)'
                 });
 
-                // --- 2. Animasi Navigasi (Dropdown Effect) ---
-                // Kita nangkep elemen menu navigasi biar pas ganti menu ada transisinya
-                doc.querySelectorAll('.nav-link').forEach((el, i) => {
-                    window.parent.anime({
-                        targets: el,
-                        translateX: [-50, 0],
-                        opacity: [0, 1],
-                        delay: i * 150,
-                        easing: 'easeOutElastic(1, .8)',
-                        duration: 1000
-                    });
-                });
-
-                // --- 3. Animasi Square (WAAPI Style) ---
-                doc.querySelectorAll('.square').forEach(el => {
-                    window.parent.anime({
-                        targets: el,
-                        translateX: '15rem',
-                        scale: 1.25,
-                        skew: -45,
-                        rotate: '1turn',
-                        duration: 2500,
-                        direction: 'alternate',
-                        loop: true,
-                        easing: 'easeInOutQuad'
-                    });
+                // 2. Animasi Judul Page (Fade & Slide)
+                window.parent.anime({
+                    targets: doc.querySelectorAll('.animate-header'),
+                    translateX: [-30, 0],
+                    opacity: [0, 1],
+                    duration: 1500,
+                    easing: 'easeOutExpo'
                 });
             };
 
-            setTimeout(runAnimations, 600);
+            // Observer untuk re-trigger saat pindah menu
+            const observer = new MutationObserver(() => runAnimations());
+            observer.observe(doc.querySelector('.stApp'), { childList: true, subtree: true });
+            
+            setTimeout(runAnimations, 500);
         </script>
         """,
         height=0,
@@ -111,26 +85,24 @@ with st.sidebar:
     selected = option_menu(
         menu_title=None,
         options=["EDA", "Prediction"],
-        icons=["bar-chart-fill", "cpu-fill"],
+        icons=["bar-chart-line-fill", "cpu-fill"],
         default_index=0,
         styles={
-            "container": {"background-color": "transparent"},
+            "container": {"background-color": "transparent", "padding": "5px"},
             "nav-link": {
-                "font-weight": "bold", 
-                "color": "white", 
-                "text-align": "left", 
-                "margin": "0px",
-                "--hover-color": "rgba(59, 130, 246, 0.2)"
+                "font-size": "16px", "text-align": "left", "margin": "10px 0px",
+                "color": "white", "border-radius": "10px", 
+                "background": "rgba(255, 255, 255, 0.05)",
+                "transition": "all 0.3s"
             },
             "nav-link-selected": {
-                "background-color": "rgba(59, 130, 246, 0.3)", 
-                "border-left": "4px solid #3b82f6",
-                "font-size": "1.1rem"
+                "background-color": "#3b82f6",
+                "box-shadow": "0px 5px 15px rgba(59, 130, 246, 0.4)"
             }
         }
     )
 
-# --- ROUTING ---
+# --- MAIN CONTENT WRAPPER ---
 st.markdown('<div class="main-content">', unsafe_allow_html=True)
 if selected == "EDA":
     eda.run()

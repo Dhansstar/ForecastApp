@@ -30,7 +30,7 @@ def load_data():
         return pd.DataFrame()
 
     df = pd.read_csv(data_path)
-    # Data Cleaning
+    # Data Cleaning & Type Casting
     df['Weekend'] = df['Weekend'].replace({0:'No', 1:'Yes'})
     df['Waktu Pesanan Dibuat'] = pd.to_datetime(df['Waktu Pesanan Dibuat'])
     
@@ -45,7 +45,7 @@ def load_data():
     return df
 
 def run():
-    # --- HEADER ANIMASI (STRUKTUR IDENTIK DENGAN PREDICTION.PY) ---
+    # --- HEADER DENGAN ANIMASI (FIX STRUKTUR) ---
     st.markdown('<div id="text-split"><h2 class="animate-header">📊 MARKET DEMAND ANALYSIS</h2></div>', unsafe_allow_html=True)
     
     st.markdown("""
@@ -59,12 +59,10 @@ def run():
 
     if df.empty: return
 
-    # --- INTERNAL EDA STATS (Processing) ---
+    # --- INTERNAL DATA INFO (Hidden from UI but useful) ---
     buffer = io.StringIO()
     df.info(buf=buffer)
     dataframe_info = buffer.getvalue()
-    duplicate_count = df.duplicated().sum()
-    missing_values = df.isnull().sum()
 
     # ==============================
     # 1. PRODUCT DISTRIBUTION
@@ -85,15 +83,12 @@ def run():
         fig_pie.update_traces(textinfo='percent+label', marker=dict(line=dict(color='#1e293b', width=2)))
         st.plotly_chart(apply_plotly_style(fig_pie), use_container_width=True)
 
-    st.markdown("""
-    - **Kitchen & Dining (36.5%)** dan **Home Organization & Living (33.1%)** mendominasi penjualan (>70%).
-    - Demand sangat terkonsentrasi pada produk kebutuhan rumah tangga.
-    """)
+    st.info("**Kitchen & Dining (36.5%)** dan **Home Organization & Living (33.1%)** mendominasi volume penjualan.")
 
     # ==============================
-    # 2. MONTHLY SALES DISTRIBUTION
+    # 2. MONTHLY SALES DISTRIBUTION & VARIABILITY
     # ==============================
-    st.markdown('<h2 class="animate-header">1. Monthly Sales Distribution</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 class="animate-header">📈 Monthly Sales Distribution</h2>', unsafe_allow_html=True)
     df['year_month'] = df['Waktu Pesanan Dibuat'].dt.to_period('M').astype(str)
     
     monthly_category = df.groupby(['year_month','Kategori Produk'])['Jumlah Terjual Bersih'].sum().reset_index()
@@ -102,25 +97,23 @@ def run():
                        color='Kategori Produk', color_discrete_sequence=COLORS)
     st.plotly_chart(apply_plotly_style(fig_area), use_container_width=True)
 
-    st.write("#### Category Variability (Standard Deviation)")
-    st.write(monthly_category.pivot(index='year_month', columns='Kategori Produk', values='Jumlah Terjual Bersih').std().sort_values(ascending=False))
-    
-    st.info("- **Kitchen & Dining memiliki variabilitas permintaan tertinggi**.")
+    st.write("#### Category Standard Deviation (Variability)")
+    std_data = monthly_category.pivot(index='year_month', columns='Kategori Produk', values='Jumlah Terjual Bersih').std().sort_values(ascending=False)
+    st.write(std_data)
 
     # ==============================
-    # 3. MONTHLY SALES TREND & GROWTH
+    # 3. TRENDS & GROWTH (MoM & ROLLING)
     # ==============================
-    st.markdown('<h2 class="animate-header">2. Monthly Sales Trend and Growth</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 class="animate-header">🚀 Monthly Sales Trend and Growth</h2>', unsafe_allow_html=True)
     monthly_total = df.groupby('year_month')['Jumlah Terjual Bersih'].sum().reset_index()
     monthly_total['MoM_growth_pct'] = monthly_total['Jumlah Terjual Bersih'].pct_change() * 100
     monthly_total['Rolling_3M'] = monthly_total['Jumlah Terjual Bersih'].rolling(3).mean()
 
-    # Trend Line
+    # Trend Line Chart
     fig_line = px.line(monthly_total, x='year_month', y='Jumlah Terjual Bersih', markers=True)
-    fig_line.update_traces(line=dict(width=3, color='#3b82f6'))
+    fig_line.update_traces(line=dict(width=4, color='#3b82f6'))
     st.plotly_chart(apply_plotly_style(fig_line), use_container_width=True)
 
-    # MoM Growth & Rolling
     col_g1, col_g2 = st.columns(2)
     with col_g1:
         st.write("#### Month-over-Month (MoM) Growth")
@@ -133,12 +126,10 @@ def run():
         fig_roll.update_traces(marker_color='#a855f7')
         st.plotly_chart(apply_plotly_style(fig_roll), use_container_width=True)
 
-    st.markdown("- Lonjakan penjualan kemungkinan besar dipicu oleh **event-driven demand**.")
-
     # ==============================
-    # 4. REVENUE ANALYSIS
+    # 4. REVENUE ANALYSIS (GROSS vs NET)
     # ==============================
-    st.markdown('<h2 class="animate-header">3. Gross and Net Revenue</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 class="animate-header">💰 Gross and Net Revenue Analysis</h2>', unsafe_allow_html=True)
     df['Total Harga'] = df[['Total Pembayaran','Total Diskon','Ongkos Kirim Dibayar oleh Pembeli']].sum(axis=1)
     
     rev_sum = df.groupby('Kategori Produk').agg(
@@ -147,19 +138,19 @@ def run():
     ).sort_values('Gross_Revenue', ascending=False).reset_index()
     rev_sum['Cost_Revenue'] = rev_sum['Gross_Revenue'] - rev_sum['Net_Revenue']
 
-    st.dataframe(rev_sum, use_container_width=True)
+    st.dataframe(rev_sum.style.format(precision=0), use_container_width=True)
 
     fig_rev = go.Figure()
     fig_rev.add_trace(go.Bar(x=rev_sum['Kategori Produk'], y=rev_sum['Gross_Revenue'], name='Gross', marker_color='#64748b'))
     fig_rev.add_trace(go.Bar(x=rev_sum['Kategori Produk'], y=rev_sum['Net_Revenue'], name='Net', marker_color='#3b82f6'))
-    fig_rev.add_trace(go.Bar(x=rev_sum['Kategori Produk'], y=rev_sum['Cost_Revenue'], name='Cost', marker_color='#ec4899'))
+    fig_rev.add_trace(go.Bar(x=rev_sum['Kategori Produk'], y=rev_sum['Cost_Revenue'], name='Cost/Discount', marker_color='#ec4899'))
     fig_rev.update_layout(barmode='group')
     st.plotly_chart(apply_plotly_style(fig_rev), use_container_width=True)
 
     # ==============================
-    # 5. WEEKDAY VS WEEKEND & PROVINCES
+    # 5. LOGISTICS & BEHAVIOR
     # ==============================
-    st.markdown('<h2 class="animate-header">4. Operations & Logistics Analysis</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 class="animate-header">🚚 Logistics & Region Insights</h2>', unsafe_allow_html=True)
     
     col_op1, col_op2 = st.columns(2)
     with col_op1:
@@ -169,79 +160,61 @@ def run():
         st.plotly_chart(apply_plotly_style(fig_wk), use_container_width=True)
     
     with col_op2:
-        st.write("#### Sales by Top 10 Provinces")
-        prov_sales = df.groupby('Provinsi')['Jumlah'].sum().sort_values(ascending=False).head(10).reset_index()
+        st.write("#### Top 10 Provinces by Total Units")
+        prov_sales = df.groupby('Provinsi')['Jumlah'].sum().nlargest(10).reset_index()
         fig_prov = px.bar(prov_sales, x='Jumlah', y='Provinsi', orientation='h', color='Jumlah', color_continuous_scale='Blues')
         st.plotly_chart(apply_plotly_style(fig_prov), use_container_width=True)
 
-    # Shipping Cost
-    st.write("#### Average Shipping Cost by Province (Top 15)")
-    ship_prov = df.groupby('Provinsi')['Ongkos Kirim Dibayar oleh Pembeli'].mean().sort_values(ascending=False).head(15).reset_index()
-    fig_ship = px.bar(ship_prov, x='Ongkos Kirim Dibayar oleh Pembeli', y='Provinsi', orientation='h')
-    fig_ship.update_traces(marker_color='#f97316')
+    st.write("#### Average Shipping Cost by Province (Highest)")
+    ship_prov = df.groupby('Provinsi')['Ongkos Kirim Dibayar oleh Pembeli'].mean().nlargest(15).reset_index()
+    fig_ship = px.bar(ship_prov, x='Ongkos Kirim Dibayar oleh Pembeli', y='Provinsi', orientation='h', marker_color='#f97316')
     st.plotly_chart(apply_plotly_style(fig_ship), use_container_width=True)
 
     # ==============================
     # 6. PAYMENT METHODS
     # ==============================
-    st.markdown('<h2 class="animate-header">5. Payment Methods Analysis</h2>', unsafe_allow_html=True)
-    pay_sum = df.groupby('Metode Pembayaran').agg(
-        Qty=('Jumlah','sum'), Rev=('Total Pembayaran','sum')
-    ).sort_values('Qty', ascending=False).head(5).reset_index()
-
+    st.markdown('<h2 class="animate-header">💳 Payment Methods</h2>', unsafe_allow_html=True)
+    pay_sum = df.groupby('Metode Pembayaran').agg({'Jumlah':'sum', 'Total Pembayaran':'sum'}).reset_index()
+    
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        fig1 = px.bar(pay_sum, x='Qty', y='Metode Pembayaran', orientation='h', title="By Quantity")
-        st.plotly_chart(apply_plotly_style(fig1), use_container_width=True)
+        fig_pay1 = px.bar(pay_sum.sort_values('Jumlah', ascending=False), x='Jumlah', y='Metode Pembayaran', orientation='h', title="By Quantity")
+        st.plotly_chart(apply_plotly_style(fig_pay1), use_container_width=True)
     with col_p2:
-        fig2 = px.bar(pay_sum, x='Rev', y='Metode Pembayaran', orientation='h', title="By Revenue")
-        st.plotly_chart(apply_plotly_style(fig2), use_container_width=True)
+        fig_pay2 = px.bar(pay_sum.sort_values('Total Pembayaran', ascending=False), x='Total Pembayaran', y='Metode Pembayaran', orientation='h', title="By Revenue")
+        st.plotly_chart(apply_plotly_style(fig_pay2), use_container_width=True)
 
     # ==============================
-    # FINAL EXECUTIVE SUMMARY
+    # FINAL EXECUTIVE SUMMARY & STRATEGIC RECOMMENDATIONS
     # ==============================
     st.divider()
     st.markdown('<h2 class="animate-header">🏛️ Executive Summary</h2>', unsafe_allow_html=True)
     
-    st.write("""
-    Analisis ini bertujuan untuk memahami pola permintaan penjualan pada e-commerce sales dataset melalui eksplorasi tren penjualan, 
-    distribusi produk, perilaku pembelian konsumen, serta faktor operasional yang mempengaruhi transaksi.
-    """)
+    with st.expander("BACA ANALISIS EKSEKUTIF LENGKAP", expanded=True):
+        st.markdown("""
+        ### Key Insights:
+        1. **Dominasi Kategori:** Kitchen & Dining serta Home Organization menguasai lebih dari 70% pasar.
+        2. **Pola Demand:** Permintaan sangat dipengaruhi oleh periode promosi (event-driven) yang menyebabkan fluktuasi tajam bulanan.
+        3. **Faktor Logistik:** Biaya pengiriman ke wilayah luar Jawa (Indonesia Timur) bisa mencapai 3-4x lipat lebih mahal, menekan minat beli regional.
+        4. **Metode Bayar:** COD masih menjadi pilar utama transaksi, mengindikasikan kepercayaan konsumen terhadap pembayaran tunai.
+        """)
+
+    st.markdown('<h2 class="animate-header">💡 Strategic Recommendations</h2>', unsafe_allow_html=True)
     
-    st.subheader("Key Findings")
-    st.markdown("""
-    1. **Penjualan Terkonsentrasi:** Kitchen & Dining mendominasi volume transaksi.
-    2. **Event-Driven:** Permintaan bersifat fluktuatif mengikuti momentum promosi.
-    3. **Dominasi COD:** Metode tunai masih menjadi preferensi utama pelanggan.
-    4. **Disparitas Logistik:** Ongkir luar Jawa sangat tinggi, mempengaruhi margin keuntungan.
-    5. **Peak Time:** Aktivitas belanja lebih tinggi pada hari kerja (*weekdays*).
-    """)
-
-    # --- RECOMMENDATIONS ---
-    sections = [
-        ("1. Demand Overview", "Secara umum, penjualan didominasi Kitchen & Dining dan Home Organization yang menyumbang lebih dari 70% total transaksi."),
-        ("2. Demand Pattern", "Tren bulanan menunjukkan fluktuasi tajam yang mengindikasikan sensitivitas pembeli terhadap periode promosi."),
-        ("3. Demand Drivers", "Sistem COD dan faktor biaya kirim menjadi pendorong utama keputusan pembelian di berbagai wilayah."),
-        ("4. Operational Factors", "Return rate yang rendah menunjukkan kualitas produk yang baik, namun pembatalan sering terjadi di fase checkout.")
-    ]
-    for title, content in sections:
-        st.header(title)
-        st.write(content)
-
-    st.markdown('<h2 class="animate-header">💡 Business Recommendations</h2>', unsafe_allow_html=True)
     recs = [
-        ("🚀 Fokus Core Product", "Kitchen & Dining sebagai core product line harus mendapatkan prioritas stok dan strategi bundling."),
-        ("📅 Momentum Promosi", "Selaraskan manajemen inventory dengan event-driven demand agar tidak terjadi stockout."),
-        ("💳 Digital Adoption", "Berikan promo khusus untuk pembayaran digital guna mengurangi resiko gagal bayar pada sistem COD."),
-        ("📦 Warehouse Strategy", "Optimalisasi pengiriman luar Jawa untuk mengurangi beban ongkir pembeli."),
-        ("📉 Quality Control", "Pertahankan return rate rendah dengan perbaikan deskripsi produk berkelanjutan."),
-        ("🛒 Checkout Flow", "Sederhanakan proses konfirmasi pesanan untuk mengurangi angka pembatalan.")
+        ("🚀 Prioritas Stok", "Fokuskan manajemen inventori pada kategori Kitchen & Dining untuk meminimalisir stockout pada periode puncak."),
+        ("📅 Kampanye Momentum", "Sinkronkan strategi marketing dengan event-driven demand untuk memaksimalkan ROI iklan."),
+        ("💳 Digital Adoption", "Berikan insentif berupa potongan harga atau free ongkir khusus untuk metode pembayaran digital (ShopeePay/Transfer) guna mengurangi risiko COD."),
+        ("📦 Optimalisasi Logistik", "Pertimbangkan penggunaan gudang regional atau mitra logistik lokal untuk menekan biaya kirim ke wilayah luar Jawa."),
+        ("📉 Analisis Retur", "Meskipun return rate rendah, perbaikan deskripsi produk pada kategori makanan sangat krusial untuk menjaga loyalitas."),
+        ("🛒 Checkout Friction", "Sederhanakan proses checkout untuk menekan angka pembatalan pesanan yang dipicu oleh biaya operasional tambahan.")
     ]
-    for r_title, r_desc in recs:
-        st.success(f"**{r_title}**: {r_desc}")
+    
+    for title, desc in recs:
+        st.success(f"**{title}**: {desc}")
 
-    # Trigger Anime.js Square
-    st.markdown('<div style="display: flex; justify-content: center; margin-top: 20px;"><div class="square" style="width: 40px; height: 40px; background: #3b82f6; border-radius: 8px;"></div></div>', unsafe_allow_html=True)
+    # --- ANIME.JS TRIGGER SQUARE ---
+    st.markdown('<div style="display: flex; justify-content: center; margin-top: 30px;"><div class="square" style="width: 50px; height: 50px; background: #3b82f6; border-radius: 12px; box-shadow: 0 10px 20px rgba(59,130,246,0.3);"></div></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     run()

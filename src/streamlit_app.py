@@ -13,7 +13,7 @@ def apply_custom_assets():
     base_dir = os.path.dirname(__file__)
     gif_path = os.path.join(base_dir, "6.gif")
     
-    # Background GIF Loader
+    # Background GIF Loader (Fix Path & Encoding)
     if os.path.exists(gif_path):
         with open(gif_path, "rb") as f:
             base64_gif = base64.b64encode(f.read()).decode()
@@ -29,17 +29,21 @@ def apply_custom_assets():
             }}
             /* Mencegah tabrakan icon & text di header */
             .animate-header {{
-                display: flex;
-                align-items: center;
-                gap: 15px;
+                display: flex !important;
+                align-items: center !important;
+                gap: 15px !important;
                 background: transparent !important;
+            }}
+            #text-split h2 {{
+                margin: 0;
+                padding: 10px 0;
             }}
             </style>
             ''', 
             unsafe_allow_html=True
         )
 
-    # Inject Anime.js & Dropdown Animation Logic
+    # 2. Inject Anime.js Logic (Staggered Dropdown & Mutation Observer)
     st.components.v1.html(
         """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
@@ -47,28 +51,48 @@ def apply_custom_assets():
             const doc = window.parent.document;
             
             const runAnimations = () => {
-                // 1. Animasi Dropdown untuk Menu Sidebar
+                // --- 1. Animasi Dropdown Menu Sidebar (Satu-satu muncul) ---
                 window.parent.anime({
                     targets: doc.querySelectorAll('.nav-link'),
-                    translateY: [-50, 0],
+                    translateY: [-30, 0],
                     opacity: [0, 1],
                     delay: window.parent.anime.stagger(100),
-                    easing: 'easeOutElastic(1, .6)'
+                    easing: 'easeOutElastic(1, .6)',
+                    duration: 800
                 });
 
-                // 2. Animasi Judul Page (Fade & Slide)
+                // --- 2. Animasi Judul & Header Page ---
                 window.parent.anime({
-                    targets: doc.querySelectorAll('.animate-header'),
-                    translateX: [-30, 0],
+                    targets: [
+                        doc.querySelectorAll('.animate-header'), 
+                        doc.querySelectorAll('#text-split h2')
+                    ],
+                    translateY: [-50, 0],
                     opacity: [0, 1],
-                    duration: 1500,
-                    easing: 'easeOutExpo'
+                    scale: [0.9, 1],
+                    duration: 1000,
+                    easing: 'easeOutExpo',
+                    delay: 200
+                });
+
+                // --- 3. Animasi Square WAAPI ---
+                window.parent.anime({
+                    targets: doc.querySelectorAll('.square'),
+                    translateX: '10rem',
+                    scale: 1.2,
+                    rotate: '1turn',
+                    duration: 2000,
+                    direction: 'alternate',
+                    loop: true,
+                    easing: 'easeInOutSine'
                 });
             };
 
-            // Observer untuk re-trigger saat pindah menu
-            const observer = new MutationObserver(() => runAnimations());
-            observer.observe(doc.querySelector('.stApp'), { childList: true, subtree: true });
+            // Observer: Trigger tiap kali ganti menu (Mutation)
+            const observer = new MutationObserver(() => {
+                setTimeout(runAnimations, 300);
+            });
+            observer.observe(doc.body, { childList: true, subtree: true });
             
             setTimeout(runAnimations, 500);
         </script>
@@ -80,6 +104,7 @@ apply_custom_assets()
 
 # --- SIDEBAR ---
 with st.sidebar:
+    # Sidebar Header dengan ID agar tertangkap script animasi
     st.markdown('<div id="text-split"><h2 class="animate-header">🚀 DEMANDSENSE</h2></div>', unsafe_allow_html=True)
     
     selected = option_menu(
@@ -97,12 +122,13 @@ with st.sidebar:
             },
             "nav-link-selected": {
                 "background-color": "#3b82f6",
-                "box-shadow": "0px 5px 15px rgba(59, 130, 246, 0.4)"
+                "box-shadow": "0px 10px 20px rgba(59, 130, 246, 0.4)",
+                "font-weight": "bold"
             }
         }
     )
 
-# --- MAIN CONTENT WRAPPER ---
+# --- ROUTING DENGAN WRAPPER ---
 st.markdown('<div class="main-content">', unsafe_allow_html=True)
 if selected == "EDA":
     eda.run()
